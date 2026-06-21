@@ -88,3 +88,24 @@ def test_directory_without_manifest_is_skipped(tmp_path):
     mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file, registry=registry)
     plugins = mgr.discover()
     assert len(plugins) == 0
+
+
+from src.tool_execution import _execute_tool_block_impl
+from src.agent_tools import ToolBlock
+from src.plugin_registry import get_registry
+
+
+async def test_plugin_tool_dispatches_via_tool_execution():
+    """A plugin-registered tool should be callable via execute_tool_block."""
+    registry = get_registry()
+    registry.clear()
+
+    async def do_greet(content, owner=None):
+        return {"greeting": f"hello {content}"}
+
+    registry.register_tool_implementation("greet", do_greet)
+
+    block = ToolBlock(tool_type="greet", content="world")
+    desc, result = await _execute_tool_block_impl(block)
+    assert result.get("greeting") == "hello world"
+    registry.clear()

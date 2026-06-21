@@ -915,8 +915,19 @@ async def _execute_tool_block_impl(
             desc = f"mcp: {tool}"
             result = {"error": "MCP manager not available", "exit_code": 1}
     else:
-        desc = f"unknown: {tool}"
-        result = {"error": f"Unknown tool type: {tool}", "exit_code": 1}
+        # Check plugin-registered tools before returning unknown
+        from src.plugin_registry import get_registry as _get_plugin_registry
+        _plugin_impl = _get_plugin_registry().get_tool_implementation(tool)
+        if _plugin_impl is not None:
+            try:
+                result = await _plugin_impl(content, owner=owner)
+                desc = f"{tool}: plugin"
+            except Exception as e:
+                desc = f"{tool}: plugin error"
+                result = {"error": str(e), "exit_code": 1}
+        else:
+            desc = f"unknown: {tool}"
+            result = {"error": f"Unknown tool type: {tool}", "exit_code": 1}
 
     logger.info(f"Tool executed: {desc} -> exit_code={result.get('exit_code', 'n/a')}")
     return desc, result
