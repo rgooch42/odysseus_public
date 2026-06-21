@@ -1,0 +1,5 @@
+name: example-plugin
+version: 1.0.0
+description: Reference plugin showing the minimal structure for an Odysseus plugin.
+author: community
+tools: tools.py
