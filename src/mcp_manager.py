@@ -156,15 +156,23 @@ class McpManager:
         args: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
         url: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
     ) -> bool:
-        """Connect to an MCP server via stdio, SSE, or Streamable HTTP transport."""
+        """Connect to an MCP server via stdio, SSE, or Streamable HTTP transport.
+
+        `headers` — static HTTP request headers for HTTP/SSE transport.  When
+        provided for HTTP transport, OAuth discovery is skipped entirely and the
+        headers are passed directly to streamablehttp_client.  Useful for
+        internal services that authenticate with a simple bearer token rather
+        than a full OAuth dance.
+        """
         try:
             if transport == "stdio":
                 res = await self._connect_stdio(server_id, name, command, args or [], env or {})
             elif transport == "sse":
-                res = await self._connect_sse(server_id, name, url)
+                res = await self._connect_sse(server_id, name, url, headers=headers)
             elif transport == "http":
-                res = await self._start_http_connect(server_id, name, url)
+                res = await self._start_http_connect(server_id, name, url, headers=headers)
             else:
                 logger.error(f"Unknown MCP transport: {transport}")
                 res = False
@@ -245,7 +253,7 @@ class McpManager:
             self._connections[server_id] = {"status": "error", "error": "mcp package not installed", "name": name}
             return False
 
-    async def _connect_sse(self, server_id: str, name: str, url: str) -> bool:
+    async def _connect_sse(self, server_id: str, name: str, url: str, headers: Optional[Dict[str, str]] = None) -> bool:
         """Connect to an MCP server via SSE transport."""
         try:
             from mcp import ClientSession
@@ -254,7 +262,7 @@ class McpManager:
 
             stack = AsyncExitStack()
             try:
-                transport = await stack.enter_async_context(sse_client(url))
+                transport = await stack.enter_async_context(sse_client(url, headers=headers or {}))
                 read_stream, write_stream = transport
                 session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
 
@@ -295,13 +303,13 @@ class McpManager:
             self._connections[server_id] = {"status": "error", "error": "mcp package not installed", "name": name}
             return False
 
-    async def _start_http_connect(self, server_id: str, name: str, url: str, wait: float = 8.0) -> bool:
+    async def _start_http_connect(self, server_id: str, name: str, url: str, headers: Optional[Dict[str, str]] = None, wait: float = 8.0) -> bool:
         """Begin a Streamable HTTP connect in the background. Returns within
         `wait` seconds: True if it connected (cached-token path), otherwise the
         flow is awaiting browser authorization and status becomes 'needs_auth'."""
         import asyncio
         self._connections[server_id] = {"status": "connecting", "name": name, "transport": "http"}
-        task = asyncio.create_task(self._connect_http(server_id, name, url))
+        task = asyncio.create_task(self._connect_http(server_id, name, url, headers=headers))
         self._connect_tasks[server_id] = task
         done, _ = await asyncio.wait({task}, timeout=wait)
         if task in done:
@@ -322,25 +330,41 @@ class McpManager:
             }
         return False
 
-    async def _connect_http(self, server_id: str, name: str, url: str) -> bool:
-        """Connect to a Streamable HTTP MCP server (with automatic OAuth)."""
+    async def _connect_http(self, server_id: str, name: str, url: str, headers: Optional[Dict[str, str]] = None) -> bool:
+        """Connect to a Streamable HTTP MCP server.
+
+        When `headers` are provided (e.g. {"Authorization": "Bearer tok"}),
+        the OAuth discovery/DCR flow is bypassed entirely and the headers are
+        forwarded directly on every request.  This is the right path for
+        internal services (Beatrice MCPs, private gateways) that use a static
+        bearer token rather than a full OAuth dance.
+
+        Without headers, the existing OAuth provider path is used unchanged.
+        """
         try:
             from mcp import ClientSession
             from mcp.client.streamable_http import streamablehttp_client
             from contextlib import AsyncExitStack
-            from src.mcp_oauth import build_provider, clear_auth_url
 
-            def _on_redirect(auth_url):
-                # Publish needs_auth the moment the URL is known, independent of
-                # how long discovery/DCR took (may exceed the bounded start wait).
-                self._connections[server_id] = {
-                    "status": "needs_auth", "name": name, "transport": "http",
-                    "auth_url": auth_url,
-                }
-
-            provider = build_provider(server_id, url, on_redirect=_on_redirect)
             stack = AsyncExitStack()
-            transport = await stack.enter_async_context(streamablehttp_client(url, auth=provider))
+            if headers:
+                # Static-header path: skip OAuth entirely.
+                transport = await stack.enter_async_context(
+                    streamablehttp_client(url, headers=headers)
+                )
+            else:
+                from src.mcp_oauth import build_provider, clear_auth_url
+
+                def _on_redirect(auth_url):
+                    # Publish needs_auth the moment the URL is known, independent of
+                    # how long discovery/DCR took (may exceed the bounded start wait).
+                    self._connections[server_id] = {
+                        "status": "needs_auth", "name": name, "transport": "http",
+                        "auth_url": auth_url,
+                    }
+
+                provider = build_provider(server_id, url, on_redirect=_on_redirect)
+                transport = await stack.enter_async_context(streamablehttp_client(url, auth=provider))
             read_stream, write_stream, _get_session_id = transport
             session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
             await session.initialize()
@@ -361,7 +385,8 @@ class McpManager:
                 "status": "connected", "name": name, "transport": "http",
                 "tool_count": len(tools),
             }
-            clear_auth_url(server_id)
+            if not headers:
+                clear_auth_url(server_id)
             # Tools changed (this can complete after connect_server already
             # returned, via the background OAuth flow), so bump the generation
             # to invalidate the tool-prompt cache.
@@ -419,6 +444,7 @@ class McpManager:
             for srv in servers:
                 args = json.loads(srv.args) if srv.args else []
                 env = json.loads(srv.env) if srv.env else {}
+                headers = json.loads(srv.headers) if getattr(srv, "headers", None) else None
                 await self.connect_server(
                     server_id=srv.id,
                     name=srv.name,
@@ -427,6 +453,7 @@ class McpManager:
                     args=args,
                     env=env,
                     url=srv.url,
+                    headers=headers,
                 )
         finally:
             db.close()
@@ -542,7 +569,7 @@ class McpManager:
         for server_id, tools in self._tools.items():
             # Skip builtin Python servers — they use the code-block tool format
             # But include NPX-based builtins (like browser) which need function calling
-            if self.is_builtin(server_id) and server_id != "builtin_browser":
+            if self.is_builtin(server_id) and not self._is_external_builtin(server_id):
                 continue
             conn = self._connections.get(server_id, {})
             server_name = conn.get("name", server_id)
@@ -611,6 +638,53 @@ class McpManager:
             "rag",
             "email",
         }
+
+    def _is_external_builtin(self, server_id: str) -> bool:
+        """True for built-ins whose tools the LLM should see directly.
+
+        Python stdio built-ins (image_gen, memory, rag, email) expose their
+        tools via the code-block format and are excluded from the function-call
+        prompt.  External built-ins — NPX (builtin_browser) and HTTP
+        (builtin_http_*) — are real MCP servers whose tools need to appear in
+        the function-call schema so the model can invoke them.
+        """
+        return server_id == "builtin_browser" or server_id.startswith("builtin_http_")
+
+    async def start_http_reconnect_loop(self, interval: float = 30.0) -> None:
+        """Background task: re-connects HTTP built-in servers that have dropped.
+
+        Runs every `interval` seconds.  Only retries servers whose URL env var
+        is set and whose current status is not connected/connecting.  Designed
+        to survive Beatrice / Docker restarts without requiring an Odysseus
+        restart.
+        """
+        import asyncio
+        from src.builtin_mcp import _BUILTIN_HTTP_SERVERS
+        while True:
+            await asyncio.sleep(interval)
+            for server_id, cfg in _BUILTIN_HTTP_SERVERS.items():
+                url = os.environ.get(cfg["url_env"], "").strip()
+                if not url:
+                    continue
+                status = self.get_server_status(server_id).get("status")
+                if status in ("connected", "connecting"):
+                    continue
+                token_env = cfg.get("token_env", "")
+                token = os.environ.get(token_env, "").strip() if token_env else ""
+                headers: Optional[Dict[str, str]] = (
+                    {"Authorization": f"Bearer {token}"} if token else None
+                )
+                try:
+                    logger.info("HTTP MCP reconnect attempt: %s at %s", cfg["name"], url)
+                    await self.connect_server(
+                        server_id=server_id,
+                        name=cfg["name"],
+                        transport="http",
+                        url=url,
+                        headers=headers,
+                    )
+                except Exception as exc:
+                    logger.debug("HTTP MCP reconnect failed for %s: %s", cfg["name"], exc)
 
     def get_server_status(self, server_id: str) -> Dict:
         """Get connection status for a server."""

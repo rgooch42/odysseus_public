@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+from typing import Dict
 
 from core.platform_compat import IS_WINDOWS, which_tool
 from src.runtime_paths import get_app_root
@@ -83,6 +84,43 @@ _BUILTIN_NPX_SERVERS = {
         "command": "npx",
         "args": ["-y", "@playwright/mcp@latest", "--headless", "--caps", "vision"],
     }
+}
+
+# HTTP MCP servers auto-connected at startup when their URL env var is set.
+# Each entry maps a stable server_id to the env var that holds the URL and an
+# optional env var that holds a static bearer token.
+#
+# server_id MUST start with "builtin_http_" so McpManager.is_builtin() recognises
+# them and McpManager._is_external_builtin() includes their tools in the LLM prompt.
+#
+# Add an entry here and the matching BEATRICE_*_MCP_URL var to .env to wire up a
+# new Beatrice (or any other) HTTP MCP endpoint with zero code beyond this dict.
+_BUILTIN_HTTP_SERVERS: Dict[str, Dict[str, str]] = {
+    "builtin_http_sb": {
+        "name": "Built-in: SecondBrain (sb)",
+        "url_env": "BEATRICE_SB_MCP_URL",
+        "token_env": "BEATRICE_SB_MCP_TOKEN",
+    },
+    "builtin_http_research": {
+        "name": "Built-in: Research MCP",
+        "url_env": "BEATRICE_RESEARCH_MCP_URL",
+        "token_env": "BEATRICE_RESEARCH_MCP_TOKEN",
+    },
+    "builtin_http_shell": {
+        "name": "Built-in: Shell MCP",
+        "url_env": "BEATRICE_SHELL_MCP_URL",
+        "token_env": "BEATRICE_SHELL_MCP_TOKEN",
+    },
+    "builtin_http_workspace": {
+        "name": "Built-in: Workspace MCP",
+        "url_env": "BEATRICE_WORKSPACE_MCP_URL",
+        "token_env": "BEATRICE_WORKSPACE_MCP_TOKEN",
+    },
+    "builtin_http_model_router": {
+        "name": "Built-in: Model Router MCP",
+        "url_env": "BEATRICE_MODEL_ROUTER_MCP_URL",
+        "token_env": "BEATRICE_MODEL_ROUTER_MCP_TOKEN",
+    },
 }
 
 # Global flag to disable MCP if there are compatibility issues
@@ -176,6 +214,49 @@ async def register_builtin_servers(mcp_manager):
                 logger.warning(f"Built-in NPX server {cfg['name']} error: {type(e).__name__}: {e}")
 
     asyncio.create_task(_start_npx_servers())
+
+    # ── HTTP built-in servers ────────────────────────────────────────────────
+    # Each entry in _BUILTIN_HTTP_SERVERS is attempted only when its URL env
+    # var is set.  A missing or unreachable server logs a warning and is
+    # skipped — the app starts normally and the reconnect loop retries later.
+    async def _start_http_servers():
+        await asyncio.sleep(5)  # let Python + NPX servers stabilise first
+        for server_id, cfg in _BUILTIN_HTTP_SERVERS.items():
+            url = os.environ.get(cfg["url_env"], "").strip()
+            if not url:
+                logger.debug(
+                    "HTTP built-in %s skipped (%s not set)",
+                    cfg["name"], cfg["url_env"],
+                )
+                continue
+            token_env = cfg.get("token_env", "")
+            token = os.environ.get(token_env, "").strip() if token_env else ""
+            headers = {"Authorization": f"Bearer {token}"} if token else None
+            try:
+                ok = await mcp_manager.connect_server(
+                    server_id=server_id,
+                    name=cfg["name"],
+                    transport="http",
+                    url=url,
+                    headers=headers,
+                )
+                if ok:
+                    logger.info("HTTP built-in MCP registered: %s", cfg["name"])
+                else:
+                    logger.warning(
+                        "HTTP built-in MCP unavailable at startup: %s (%s) — "
+                        "reconnect loop will retry every 30 s",
+                        cfg["name"], url,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except BaseException as exc:
+                logger.warning(
+                    "HTTP built-in MCP %s error: %s: %s",
+                    cfg["name"], type(exc).__name__, exc,
+                )
+
+    asyncio.create_task(_start_http_servers())
 
 
 def _npx_package_from_args(args):

@@ -961,6 +961,11 @@ async def _startup_event():
 
     _startup_tasks.append(asyncio.create_task(_startup_mcp_connections()))
 
+    # Keep HTTP built-in MCP servers (Beatrice, external gateways) alive across
+    # independent Docker restarts. Checks every 30 s; reconnects any that have
+    # dropped. No-op when no BEATRICE_*_MCP_URL vars are set.
+    _startup_tasks.append(asyncio.create_task(mcp_manager.start_http_reconnect_loop()))
+
     # Pre-warm the RAG tool index off the request path. Loading the local
     # embedding model + opening ChromaDB + indexing the built-in tools is a
     # one-time ~1-3s cost that otherwise lands on the user's FIRST message
