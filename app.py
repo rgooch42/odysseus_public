@@ -789,6 +789,19 @@ app.include_router(setup_contacts_routes())
 from companion import setup_companion_routes
 app.include_router(setup_companion_routes())
 
+# ── Plugin system ────────────────────────────────────────────────────────────
+from pathlib import Path as _Path
+from src.plugin_manager import init_manager as _init_plugin_manager
+from core.constants import PLUGINS_DIR, PLUGINS_STATE_FILE
+from routes.plugin_settings_routes import setup_plugin_settings_routes
+
+_plugin_manager = _init_plugin_manager(
+    plugins_dir=_Path(PLUGINS_DIR),
+    state_file=_Path(PLUGINS_STATE_FILE),
+)
+app.include_router(setup_plugin_settings_routes(_plugin_manager))
+_plugin_manager.register_routes(app)
+
 # ========= ROUTES (kept in app.py) =========
 
 def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
