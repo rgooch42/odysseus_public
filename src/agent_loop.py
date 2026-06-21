@@ -35,6 +35,7 @@ from src.agent_tools import (
     ToolBlock,
     MAX_AGENT_ROUNDS,
 )
+from src.plugin_registry import get_registry as _get_plugin_registry
 
 logger = logging.getLogger(__name__)
 
@@ -2333,6 +2334,10 @@ async def stream_agent_loop(
                     if s.get("function", {}).get("name") not in _ADMIN_SCHEMA_NAMES
                 ]
                 all_tool_schemas = base_schemas + mcp_schemas
+            # Append plugin-contributed tool schemas
+            _plugin_schemas = _get_plugin_registry().get_all_tool_schemas()
+            if _plugin_schemas:
+                all_tool_schemas = all_tool_schemas + _plugin_schemas
             if disabled_tools:
                 all_tool_schemas = [
                     t for t in all_tool_schemas
