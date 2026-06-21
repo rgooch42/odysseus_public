@@ -42,12 +42,20 @@ without duplicating effort, while keeping proprietary workflows private.
 | Repo | Visibility | Purpose |
 |------|-----------|---------|
 | `rgooch42/odysseus_local` | Private | Personal fork; bridge config, private overlay, local patches |
-| `pewdiepie-archdaemon/odysseus` | Public | Upstream; receives framework PRs via clean feature branches |
+| `rgooch42/odysseus_public` | Public | Staging fork; Phase B contributions visible before PRing upstream |
+| `pewdiepie-archdaemon/odysseus` | Public | Upstream; final destination for community contributions |
 | *(future)* `rgooch42/beatrice-modules` | Private | Private plugin implementations (Phase C) |
 
 **Remote convention in `odysseus_local`:**
-- `origin` → `rgooch42/odysseus_local`
-- `upstream` → `pewdiepie-archdaemon/odysseus`
+- `origin`   → `rgooch42/odysseus_local` (private)
+- `public`   → `rgooch42/odysseus_public` (public staging)
+- `upstream` → `pewdiepie-archdaemon/odysseus` (upstream)
+
+**Contribution flow:**
+```
+odysseus_local feat/* → push to public → PR to upstream
+```
+Private config never touches `public` or `upstream`.
 
 **Branch convention:**
 - `feat/*` — intended for upstream PR; no private config
@@ -260,7 +268,6 @@ None of this goes upstream.
    exists. Contributes DNS/network awareness without revealing our specific
    infrastructure config.
 
-5. **`Odysseus_Public` repo:** Open — see Phase B repo strategy in §3. Options
-   are (a) contribute directly from `odysseus_local` `feat/*` branches, or
-   (b) maintain a separate public fork `rgooch42/odysseus_public` as a staging
-   ground before PRing upstream. Decision pending.
+5. **`Odysseus_Public` repo:** `rgooch42/odysseus_public` created as a public
+   fork of `pewdiepie-archdaemon/odysseus`. Phase B contributions stage here
+   before PRing upstream. Added as remote `public` in `odysseus_local`.

@@ -11,7 +11,8 @@ committed to `rgooch42/odysseus_local` but never upstreamed to
 
 ## Git remotes
 - `origin`   → https://github.com/rgooch42/odysseus_local (private)
-- `upstream` → https://github.com/pewdiepie-archdaemon/odysseus (public)
+- `public`   → https://github.com/rgooch42/odysseus_public (public staging fork)
+- `upstream` → https://github.com/pewdiepie-archdaemon/odysseus (upstream)
 
 ## Upstream sync
 ```
@@ -19,6 +20,12 @@ git fetch upstream
 git rebase upstream/dev
 ```
 
+## Contribution flow
+```
+feat/* branch → git push public feat/<name> → PR from odysseus_public to upstream
+```
+Never push `local/*` branches or `.env.local` to `public` or `upstream`.
+
 ## Branch conventions
-- `feat/*`  — work intended for an upstream PR (keep clean, no local secrets)
-- `local/*` — private-only changes that never leave this repo
+- `feat/*`  — work intended for upstream PR; keep clean, no local secrets
+- `local/*` — private-only; never pushed beyond `origin`
