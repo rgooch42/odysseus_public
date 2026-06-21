@@ -93,33 +93,33 @@ _BUILTIN_NPX_SERVERS = {
 # server_id MUST start with "builtin_http_" so McpManager.is_builtin() recognises
 # them and McpManager._is_external_builtin() includes their tools in the LLM prompt.
 #
-# Add an entry here and the matching BEATRICE_*_MCP_URL var to .env to wire up a
-# new Beatrice (or any other) HTTP MCP endpoint with zero code beyond this dict.
+# Add an entry here and the matching ODYSSEUS_MCP_*_URL var to .env to wire up a
+# new HTTP MCP endpoint with zero code beyond this dict.
 _BUILTIN_HTTP_SERVERS: Dict[str, Dict[str, str]] = {
     "builtin_http_sb": {
         "name": "Built-in: SecondBrain (sb)",
-        "url_env": "BEATRICE_SB_MCP_URL",
-        "token_env": "BEATRICE_SB_MCP_TOKEN",
+        "url_env": "ODYSSEUS_MCP_SB_URL",
+        "token_env": "ODYSSEUS_MCP_SB_TOKEN",
     },
     "builtin_http_research": {
         "name": "Built-in: Research MCP",
-        "url_env": "BEATRICE_RESEARCH_MCP_URL",
-        "token_env": "BEATRICE_RESEARCH_MCP_TOKEN",
+        "url_env": "ODYSSEUS_MCP_RESEARCH_URL",
+        "token_env": "ODYSSEUS_MCP_RESEARCH_TOKEN",
     },
     "builtin_http_shell": {
         "name": "Built-in: Shell MCP",
-        "url_env": "BEATRICE_SHELL_MCP_URL",
-        "token_env": "BEATRICE_SHELL_MCP_TOKEN",
+        "url_env": "ODYSSEUS_MCP_SHELL_URL",
+        "token_env": "ODYSSEUS_MCP_SHELL_TOKEN",
     },
     "builtin_http_workspace": {
         "name": "Built-in: Workspace MCP",
-        "url_env": "BEATRICE_WORKSPACE_MCP_URL",
-        "token_env": "BEATRICE_WORKSPACE_MCP_TOKEN",
+        "url_env": "ODYSSEUS_MCP_WORKSPACE_URL",
+        "token_env": "ODYSSEUS_MCP_WORKSPACE_TOKEN",
     },
     "builtin_http_model_router": {
         "name": "Built-in: Model Router MCP",
-        "url_env": "BEATRICE_MODEL_ROUTER_MCP_URL",
-        "token_env": "BEATRICE_MODEL_ROUTER_MCP_TOKEN",
+        "url_env": "ODYSSEUS_MCP_MODEL_ROUTER_URL",
+        "token_env": "ODYSSEUS_MCP_MODEL_ROUTER_TOKEN",
     },
 }
 
