@@ -81,6 +81,9 @@ Setup guide: `local/docs/bridge-setup.md`
 ### 5.1 Plugin / Module Architecture
 
 The foundational contribution. Odysseus has no extension system today.
+Discovery mirrors the existing integration autodiscovery pattern: plugins are
+found automatically in a `plugins/` directory; each gets an on/off toggle in
+Settings.
 
 **Plugin manifest (YAML):**
 ```yaml
@@ -110,17 +113,21 @@ settings_namespace: my_plugin             # optional prefs prefix
 
 ### 5.2 Job Queue System
 
-Generalized from BeatriceRouter's Redis/RQ implementation.
+Generalized from BeatriceRouter's Redis/RQ implementation. Extends (never
+replaces) Odysseus's existing `task_scheduler.py` — existing scheduled task
+behavior is fully preserved.
 
 - Redis/RQ-based async job executor with configurable retry, TTL, and priority
 - Queue dashboard: pending / running / history / failed views
 - Job detail: logs, tool calls made, output, token usage, duration
 - SSE push for live queue status updates
-- Replaces / extends Odysseus's existing `task_scheduler.py` (which is synchronous and thin)
+- `task_scheduler.py` gains a Redis backend option; falls back to existing
+  in-process scheduler when Redis is unavailable
 
 ### 5.3 Harness Runner (Evaluation Framework)
 
-Model evaluation runner, contributed as a plugin or core feature.
+Model evaluation runner, contributed as a **plugin** (not core — keeps the
+base install lean; users opt in).
 
 - TOML-defined harness configs: model, tool set, round limit, context budget,
   assertions (expected tool calls, output patterns, pass/fail criteria)
@@ -234,12 +241,26 @@ None of this goes upstream.
 
 ---
 
-## 8. Open Questions
+## 8. Decisions
 
-1. Does Odysseus want a `plugins/` directory convention, or should plugin
-   discovery be config-driven (explicit list in `settings.py`)?
-2. Should the job queue replace `task_scheduler.py` or run alongside it?
-3. Harness runner: core feature or plugin? (Probably plugin to avoid bloating
-   the base install.)
-4. Unifi integration: revisit for upstream contribution once the plugin system
-   exists — it could be a community plugin without revealing our specific setup.
+1. **Plugin discovery:** Mirror Odysseus's existing autodiscovery pattern.
+   Plugins are discovered automatically from a `plugins/` directory; each plugin
+   gets an on/off toggle in Settings (config slider), matching how Odysseus
+   handles existing integrations. No explicit list in `settings.py`.
+
+2. **Job queue vs. `task_scheduler.py`:** Extend, never replace. The job queue
+   system wraps and builds on top of `task_scheduler.py` — adding Redis/RQ-backed
+   async execution, queue dashboard, and SSE updates as an additive layer.
+   Existing scheduled task behavior is preserved.
+
+3. **Harness runner:** Plugin, not core. Keeps the base install lean; users who
+   want model evaluation opt in.
+
+4. **Unifi integration:** Revisit as a community plugin once the plugin system
+   exists. Contributes DNS/network awareness without revealing our specific
+   infrastructure config.
+
+5. **`Odysseus_Public` repo:** Open — see Phase B repo strategy in §3. Options
+   are (a) contribute directly from `odysseus_local` `feat/*` branches, or
+   (b) maintain a separate public fork `rgooch42/odysseus_public` as a staging
+   ground before PRing upstream. Decision pending.
