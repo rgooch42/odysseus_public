@@ -107,6 +107,14 @@ class PluginManager:
 
     def _load_plugin(self, plugin: Plugin) -> None:
         name = plugin.manifest.name
+        if plugin.manifest.models:
+            models_path = plugin.directory / plugin.manifest.models
+            if models_path.exists():
+                try:
+                    self._import_module(f"_plugin_{name}_models", models_path)
+                    logger.info("Plugin %s: models imported", name)
+                except Exception as e:
+                    logger.error("Plugin %s: failed to import models: %s", name, e)
         if plugin.manifest.tools:
             tools_path = plugin.directory / plugin.manifest.tools
             if tools_path.exists():

@@ -1801,6 +1801,17 @@ def _migrate_seed_email_account():
         logging.getLogger(__name__).warning(f"seed email account migration: {e}")
 
 
+def register_plugin_models() -> None:
+    """Create tables for any SQLAlchemy models declared by plugins.
+
+    Must be called after the PluginManager has imported plugin model modules
+    (which attaches their declarative models to Base). create_all is idempotent
+    — it skips tables that already exist — so calling it again is safe.
+    """
+    Base.metadata.create_all(bind=engine)
+    logger.info("Plugin model tables ensured")
+
+
 # WARNING: Foreign-key enforcement is enabled globally for all SQLite connections.
 # Any future migrations or schema changes that temporarily violate foreign-key
 # constraints will fail. To perform such operations, foreign_keys must be

@@ -794,11 +794,13 @@ from pathlib import Path as _Path
 from src.plugin_manager import init_manager as _init_plugin_manager
 from core.constants import PLUGINS_DIR, PLUGINS_STATE_FILE
 from routes.plugin_settings_routes import setup_plugin_settings_routes
+from core.database import register_plugin_models as _register_plugin_models
 
 _plugin_manager = _init_plugin_manager(
     plugins_dir=_Path(PLUGINS_DIR),
     state_file=_Path(PLUGINS_STATE_FILE),
 )
+_register_plugin_models()
 app.include_router(setup_plugin_settings_routes(_plugin_manager))
 _plugin_manager.register_routes(app)
 

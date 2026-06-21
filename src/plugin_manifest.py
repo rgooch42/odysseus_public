@@ -22,6 +22,7 @@ class PluginManifest(BaseModel):
     author: str = ""
     routes: Optional[str] = None   # relative path to routes module, e.g. "routes.py"
     tools: Optional[str] = None    # relative path to tools module, e.g. "tools.py"
+    models: Optional[str] = None   # relative path to SQLAlchemy models module, e.g. "models.py"
 
     @field_validator("name")
     @classmethod
