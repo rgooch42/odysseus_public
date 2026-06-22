@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -104,7 +105,6 @@ class PluginManager:
           - validation_status: "ok" | "warning" | "error"
           - issues: list of dicts with keys type, severity, and env or integration
         """
-        import os
         if not plugin.manifest.requires:
             return "ok", []
 
@@ -119,6 +119,7 @@ class PluginManager:
                     if severity_rank["error"] > severity_rank[worst]:
                         worst = "error"
             elif req.integration:
+                # When both env and integration are set, env is checked and integration is ignored.
                 if not self._integration_configured(req.integration):
                     issues.append({
                         "type": "integration_missing",
@@ -132,7 +133,6 @@ class PluginManager:
 
     def _integration_configured(self, integration_type: str) -> bool:
         """Return True if the named integration type appears to be set up."""
-        import os
         if integration_type == "vault":
             # OpenBao / HashiCorp Vault: check for the standard address env var
             return bool(os.environ.get("VAULT_ADDR", "").strip())
@@ -225,7 +225,6 @@ class PluginManager:
         _is_external_builtin() include these tools in the LLM prompt, matching
         the behaviour of hand-configured HTTP built-ins.
         """
-        import os
         import json as _json
 
         enabled_names = set(self._load_state().get("enabled", []))
