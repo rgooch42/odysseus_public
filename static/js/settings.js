@@ -3494,6 +3494,7 @@ const INTG_TYPES = {
   codex:   { label: 'Codex',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 10.696.453a6.023 6.023 0 0 0-5.75 4.172 6.061 6.061 0 0 0-3.946 2.945 6.024 6.024 0 0 0 .742 7.099 5.98 5.98 0 0 0 .516 4.911 6.046 6.046 0 0 0 6.51 2.9A5.996 5.996 0 0 0 13.26 23.547a6.023 6.023 0 0 0 5.75-4.172 6.061 6.061 0 0 0 3.946-2.945 6.024 6.024 0 0 0-.674-6.609zM13.26 21.047a4.508 4.508 0 0 1-2.886-1.041l.143-.082 4.793-2.769a.777.777 0 0 0 .391-.676V10.34l2.026 1.17a.072.072 0 0 1 .039.061v5.596a4.532 4.532 0 0 1-4.506 4.48zM3.968 17.64a4.473 4.473 0 0 1-.537-3.018l.143.086 4.793 2.769a.79.79 0 0 0 .782 0l5.852-3.379v2.34a.072.072 0 0 1-.029.062l-4.845 2.796a4.532 4.532 0 0 1-6.159-1.656zM2.804 7.922a4.49 4.49 0 0 1 2.348-1.973V11.6a.778.778 0 0 0 .391.676l5.852 3.378-2.026 1.17a.072.072 0 0 1-.068 0L4.456 14.03a4.532 4.532 0 0 1-1.652-6.108zm16.423 3.823L13.375 8.367l2.026-1.17a.072.072 0 0 1 .068 0l4.845 2.796a4.525 4.525 0 0 1-.7 8.08V12.42a.778.778 0 0 0-.387-.676zm2.015-3.025l-.143-.086-4.793-2.769a.79.79 0 0 0-.782 0L9.672 9.243V6.903a.072.072 0 0 1 .029-.062l4.845-2.796a4.525 4.525 0 0 1 6.696 4.675zM8.598 12.66L6.57 11.49a.072.072 0 0 1-.039-.061V5.833a4.525 4.525 0 0 1 7.413-3.48l-.143.082-4.793 2.769a.777.777 0 0 0-.391.676l-.019 6.78zm1.1-2.379l2.607-1.505 2.607 1.505v3.01l-2.607 1.505-2.607-1.505z"/></svg>' },
   claude:  { label: 'Claude',  icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg>' },
   vault:   { label: 'Vault',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' },
+  plugin:  { label: 'MCP',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
 };
 
 // Config shared by the Codex Agent and Claude Agent forms. Both use the same
@@ -3586,7 +3587,7 @@ async function initUnifiedIntegrations() {
   }
 
   async function fetchAll() {
-    const [apiRes, calRes, cardRes, contactsRes, emailAccountsRes, mcpRes, vaultRes, tokenRes, calendarsRes] = await Promise.all([
+    const [apiRes, calRes, cardRes, contactsRes, emailAccountsRes, mcpRes, vaultRes, tokenRes, calendarsRes, pluginsRes] = await Promise.all([
       fetch('/api/auth/integrations', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { integrations: [] }).catch(() => ({ integrations: [] })),
       fetch('/api/calendar/config/accounts', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { accounts: [] }).catch(() => ({ accounts: [] })),
       fetch('/api/contacts/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
@@ -3596,6 +3597,7 @@ async function initUnifiedIntegrations() {
       fetch('/api/vault/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
       fetch('/api/tokens', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/calendar/calendars', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { calendars: [] }).catch(() => ({ calendars: [] })),
+      fetch('/api/plugins', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : []).catch(() => []),
     ]);
     const items = [];
     // API integrations
@@ -3655,6 +3657,35 @@ async function initUnifiedIntegrations() {
       items.push({ type: agentType, id: tok.id, name: tok.name || (agentType === 'claude' ? 'Claude Agent' : 'Codex Agent'), detail, enabled: true, data: tok });
     }
     // Vaultwarden removed as an integration option.
+    // Plugin-contributed services
+    const pluginList = Array.isArray(pluginsRes) ? pluginsRes : [];
+    for (const plugin of pluginList) {
+      if (plugin.enabled && plugin.services && plugin.services.length > 0) {
+        for (const svc of plugin.services) {
+          const statusText = svc.status === 'connected'
+            ? `${svc.enabled_tool_count}/${svc.tool_count} tools`
+            : svc.status === 'unconfigured' ? 'env var not set'
+            : svc.status;
+          items.push({
+            type: 'plugin',
+            id: `plugin_${plugin.name}_${svc.name}`,
+            name: svc.name,
+            detail: statusText,
+            enabled: svc.status === 'connected',
+            data: { plugin, svc },
+          });
+        }
+      } else if (!plugin.enabled) {
+        items.push({
+          type: 'plugin',
+          id: `plugin_${plugin.name}`,
+          name: plugin.name,
+          detail: `${plugin.description || ''} — disabled`.trim(),
+          enabled: false,
+          data: { plugin, svc: null },
+        });
+      }
+    }
     return items;
   }
 
@@ -3669,7 +3700,7 @@ async function initUnifiedIntegrations() {
     return `<div class="intg-card" data-intg-id="${item.id}" data-intg-type="${item.type}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:color-mix(in srgb, var(--fg) 3%, transparent);margin-bottom:6px;cursor:pointer;transition:all 0.15s;" title="Click to edit">
       <span style="color:var(--accent, var(--red));flex-shrink:0">${t.icon}</span>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px">${item.name} <span style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;padding:1px 5px;border:1px solid color-mix(in srgb, var(--accent, var(--red)) 50%, transparent);border-radius:3px;color:var(--accent, var(--red));background:color-mix(in srgb, var(--accent, var(--red)) 12%, transparent);">${t.label}</span></div>
+        <div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px">${item.name} <span style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;padding:1px 5px;border:1px solid color-mix(in srgb, var(--accent, var(--red)) 50%, transparent);border-radius:3px;color:var(--accent, var(--red));background:color-mix(in srgb, var(--accent, var(--red)) 12%, transparent);">${t.label}</span>${item.type === 'plugin' ? '<span style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;padding:1px 5px;border:1px solid color-mix(in srgb,#bd93f9 50%,transparent);border-radius:3px;color:#bd93f9;background:color-mix(in srgb,#bd93f9 12%,transparent);">Plugin</span>' : ''}</div>
         <div style="font-size:11px;opacity:0.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.detail || ''}</div>
       </div>
       ${statusDot}
@@ -3706,6 +3737,11 @@ async function initUnifiedIntegrations() {
         // stale accent borders on previously-clicked cards.
         listEl.querySelectorAll('.intg-card.intg-card-active').forEach(c => c.classList.remove('intg-card-active'));
         card.classList.add('intg-card-active');
+        if (type === 'plugin') {
+          const item = items.find(x => x.id === id);
+          if (item) showPluginForm(item.data.plugin.name, item.data.plugin);
+          return;
+        }
         showForm(type, id);
       });
     });
@@ -3738,6 +3774,157 @@ async function initUnifiedIntegrations() {
     });
   }
 
+  async function showPluginForm(pluginName, pluginData) {
+    const _esc = s => { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; };
+
+    let plugin = pluginData;
+    try {
+      const r = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/refresh`, {
+        method: 'POST', credentials: 'same-origin'
+      });
+      if (r.ok) plugin = await r.json();
+    } catch (_) {}
+
+    const depsHtml = (plugin.validation_issues && plugin.validation_issues.length)
+      ? plugin.validation_issues.map(issue => {
+          const icon = issue.severity === 'error' ? '✗' : '⚠';
+          const color = issue.severity === 'error' ? 'var(--red)' : '#ffb86c';
+          const label = issue.env || issue.integration;
+          const hint = issue.type === 'env_missing' ? '— not set in .env' : '— not configured';
+          return `<div style="display:flex;align-items:center;gap:5px;font-size:11px"><span style="color:${color}">${icon}</span> ${_esc(label)} <span style="opacity:0.5">${hint}</span></div>`;
+        }).join('')
+      : '<div style="font-size:11px;color:var(--color-success,#50fa7b)">✓ All dependencies satisfied</div>';
+
+    const servicesHtml = (plugin.services || []).map(svc => {
+      const dot = svc.status === 'connected' ? '#50fa7b' : svc.status === 'unconfigured' ? '#555' : '#ffb86c';
+      const toolLabel = svc.status === 'connected' ? `${svc.enabled_tool_count}/${svc.tool_count} tools` : '—';
+      const dimmed = svc.status === 'unconfigured' ? 'opacity:0.5;' : '';
+      return `<div style="${dimmed}display:flex;align-items:center;gap:8px;padding:5px 8px;border:1px solid var(--border,#333);border-radius:5px;font-size:11px">
+        <span style="width:6px;height:6px;border-radius:50%;background:${dot};flex-shrink:0"></span>
+        <span style="flex:1"><strong>${_esc(svc.name)}</strong> — ${_esc(svc.description || '')}</span>
+        <span style="opacity:0.4">${toolLabel}</span>
+        <button class="admin-btn-sm plugin-test-btn" data-plugin="${_esc(pluginName)}" data-svc="${_esc(svc.name)}" style="font-size:9px;padding:2px 7px;" ${svc.status === 'unconfigured' ? 'disabled' : ''}>Test</button>
+      </div>`;
+    }).join('');
+
+    const schema = plugin.settings_schema || [];
+    const values = plugin.settings_values || {};
+    const settingsHtml = schema.map(field => {
+      const val = values[field.key] ?? field.default ?? '';
+      if (field.type === 'select') {
+        const opts = (field.options || []).map(o =>
+          `<option value="${_esc(o.value)}" ${o.value === val ? 'selected' : ''}>${_esc(o.label)}</option>`
+        ).join('');
+        return `<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-bottom:6px">
+          <label style="opacity:0.8">${_esc(field.label)}</label>
+          <select class="plugin-setting-field" data-key="${_esc(field.key)}" style="font-size:11px;padding:3px 6px;background:var(--bg,#1e1e2e);border:1px solid var(--border,#444);border-radius:4px;color:var(--fg)">${opts}</select>
+        </div>`;
+      }
+      const envHint = field.env_hint ? `<span style="font-size:9px;opacity:0.4;margin-left:4px">env: ${_esc(field.env_hint)}</span>` : '';
+      return `<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-bottom:6px">
+        <label style="opacity:0.8">${_esc(field.label)}${envHint}</label>
+        <input class="plugin-setting-field" data-key="${_esc(field.key)}" value="${_esc(String(val))}" placeholder="${_esc(field.placeholder || '')}" style="font-size:11px;padding:3px 6px;background:var(--bg,#1e1e2e);border:1px solid var(--border,#444);border-radius:4px;color:var(--fg);width:160px" />
+      </div>`;
+    }).join('');
+
+    formEl.innerHTML = `
+      <div style="padding:12px 0">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border,#333)">
+          <div>
+            <strong>${_esc(plugin.name)}</strong> <span style="opacity:0.4;font-size:10px">v${_esc(plugin.version)} · ${_esc(plugin.author || '')}</span><br>
+            <span style="opacity:0.5;font-size:10px">${_esc(plugin.description || '')}</span>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px">
+            <span style="opacity:0.6">Enabled</span>
+            <input type="checkbox" id="plugin-form-enabled" ${plugin.enabled ? 'checked' : ''} style="width:16px;height:16px">
+          </label>
+        </div>
+
+        ${plugin.validation_issues && plugin.validation_issues.length ? `
+        <div style="margin-bottom:12px">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Dependencies</div>
+          ${depsHtml}
+        </div>` : ''}
+
+        ${plugin.services && plugin.services.length ? `
+        <div style="margin-bottom:12px">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Services</div>
+          <div style="display:flex;flex-direction:column;gap:4px">${servicesHtml}</div>
+        </div>` : ''}
+
+        ${schema.length ? `
+        <div style="margin-bottom:12px">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Settings</div>
+          ${settingsHtml}
+        </div>` : ''}
+
+        <div id="plugin-form-msg" style="font-size:11px;min-height:16px;margin-bottom:6px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:6px">
+          <button type="button" class="admin-btn-sm" id="plugin-form-cancel">Cancel</button>
+          <button type="button" class="admin-btn-add" id="plugin-form-save" style="font-size:11px">Save</button>
+        </div>
+      </div>`;
+
+    formEl.style.display = '';
+    const msgEl = formEl.querySelector('#plugin-form-msg');
+
+    formEl.querySelector('#plugin-form-enabled').addEventListener('change', async (e) => {
+      const action = e.target.checked ? 'enable' : 'disable';
+      await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/${action}`, {
+        method: 'POST', credentials: 'same-origin'
+      });
+      await renderList();
+    });
+
+    formEl.querySelectorAll('.plugin-test-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = '…';
+        try {
+          const fresh = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/refresh`, {
+            method: 'POST', credentials: 'same-origin'
+          });
+          if (fresh.ok) showPluginForm(pluginName, await fresh.json());
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Test';
+        }
+      });
+    });
+
+    formEl.querySelector('#plugin-form-cancel').addEventListener('click', () => {
+      formEl.style.display = 'none';
+    });
+
+    formEl.querySelector('#plugin-form-save').addEventListener('click', async () => {
+      const payload = {};
+      formEl.querySelectorAll('.plugin-setting-field').forEach(el => {
+        payload[el.dataset.key] = el.value;
+      });
+      try {
+        const r = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(payload),
+        });
+        if (r.ok) {
+          msgEl.textContent = 'Saved';
+          msgEl.style.color = 'var(--color-success,#50fa7b)';
+          setTimeout(() => { msgEl.textContent = ''; }, 2000);
+          await renderList();
+        } else {
+          const err = await r.json().catch(() => ({}));
+          msgEl.textContent = err.detail || 'Save failed';
+          msgEl.style.color = 'var(--red)';
+        }
+      } catch (_) {
+        msgEl.textContent = 'Error saving';
+        msgEl.style.color = 'var(--red)';
+      }
+    });
+  }
+
   function showForm(type, editId) {
     formEl.style.display = '';
     if (type === 'api') showApiForm(editId);
@@ -3748,6 +3935,7 @@ async function initUnifiedIntegrations() {
     else if (type === 'codex') showAgentForm('codex', editId);
     else if (type === 'claude') showAgentForm('claude', editId);
     else if (type === 'vault') showVaultForm();
+    else if (type === 'plugin') { /* handled by renderList click — no-op here */ }
   }
 
   // ── API form ──
