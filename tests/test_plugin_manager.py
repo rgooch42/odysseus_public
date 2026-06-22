@@ -300,3 +300,77 @@ def test_validate_worst_severity_wins(tmp_path, monkeypatch):
     status, issues = mgr.validate_requirements(mgr._discovered[0])
     assert status == "error"   # error beats warning
     assert len(issues) == 2    # BAD_VAR (error) + vault (warning)
+
+
+def test_list_plugins_includes_validation(tmp_path, monkeypatch):
+    monkeypatch.delenv("MISSING_VAR", raising=False)
+    state_file = tmp_path / "plugins.json"
+    plugin_dir = tmp_path / "req-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        "name: req-plugin\nversion: 1.0.0\nrequires:\n  - env: MISSING_VAR\n"
+    )
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+    plugins = mgr.list_plugins()
+    assert len(plugins) == 1
+    p = plugins[0]
+    assert p["validation_status"] == "error"
+    assert any(i["env"] == "MISSING_VAR" for i in p["validation_issues"])
+
+
+def test_list_plugins_includes_settings_schema_and_values(tmp_path):
+    state_file = tmp_path / "plugins.json"
+    plugin_dir = tmp_path / "cfg-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        "name: cfg-plugin\nversion: 1.0.0\nsettings:\n  - key: my_key\n    label: My Key\n    type: text\n"
+    )
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+    mgr.save_plugin_settings("cfg-plugin", {"my_key": "hello"})
+    plugins = mgr.list_plugins()
+    p = plugins[0]
+    assert p["settings_schema"] == [{"key": "my_key", "label": "My Key", "type": "text", "options": None, "default": None, "placeholder": None, "env_hint": None}]
+    assert p["settings_values"] == {"my_key": "hello"}
+
+
+def test_list_plugins_services_no_mcp_manager(tmp_path):
+    state_file = tmp_path / "plugins.json"
+    plugin_dir = tmp_path / "svc-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        "name: svc-plugin\nversion: 1.0.0\nmcp_servers:\n  - name: SB\n    url_env: SB_URL\n    description: SecondBrain vault\n"
+    )
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+    plugins = mgr.list_plugins()
+    p = plugins[0]
+    assert p["services"] == [
+        {"name": "SB", "description": "SecondBrain vault", "status": "unconfigured", "tool_count": 0, "url_configured": False}
+    ]
+
+
+def test_list_plugins_services_with_mcp_manager(tmp_path, monkeypatch):
+    monkeypatch.setenv("SB_URL", "http://example.com")
+    state_file = tmp_path / "plugins.json"
+    plugin_dir = tmp_path / "svc-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        "name: svc-plugin\nversion: 1.0.0\nmcp_servers:\n  - name: SB\n    url_env: SB_URL\n    description: SecondBrain vault\n"
+    )
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+
+    class FakeMCPManager:
+        def get_server_status(self, server_id):
+            if server_id == "builtin_http_plugin_svc_plugin_sb":
+                return {"status": "connected", "tool_count": 12}
+            return {"status": "disconnected"}
+
+    mgr.set_mcp_manager(FakeMCPManager())
+    plugins = mgr.list_plugins()
+    p = plugins[0]
+    assert p["services"] == [
+        {"name": "SB", "description": "SecondBrain vault", "status": "connected", "tool_count": 12, "url_configured": True}
+    ]

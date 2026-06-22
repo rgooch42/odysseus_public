@@ -8,7 +8,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from src.plugin_manifest import PluginManifest, ManifestError
 from src.plugin_registry import PluginRegistry, get_registry
@@ -33,6 +33,7 @@ class PluginManager:
         self._state_file = Path(state_file)
         self._registry = registry or get_registry()
         self._discovered: List[Plugin] = []
+        self._mcp_manager: Optional[Any] = None
 
     # ── Discovery ────────────────────────────────────────────────────────────
 
@@ -139,18 +140,56 @@ class PluginManager:
         # Unknown integration types: treat as not configured (warning, not error)
         return False
 
+    def set_mcp_manager(self, mcp_manager) -> None:
+        """Store a reference to the MCP manager for live server status lookups."""
+        self._mcp_manager = mcp_manager
+
+    def _get_services(self, plugin: "Plugin") -> list:
+        """Build services list with live MCP connection status."""
+        services = []
+        plugin_name_normalized = plugin.manifest.name.replace("-", "_")
+        for srv in (plugin.manifest.mcp_servers or []):
+            mcp_name = srv.name
+            server_id = f"builtin_http_plugin_{plugin_name_normalized}_{mcp_name.lower()}"
+            env_key = srv.url_env
+            url_configured = bool(os.environ.get(env_key, "").strip()) if env_key else False
+
+            if self._mcp_manager is not None:
+                conn = self._mcp_manager.get_server_status(server_id)
+                status = conn.get("status", "disconnected")
+                tool_count = conn.get("tool_count", 0)
+            else:
+                status = "unconfigured" if not url_configured else "disconnected"
+                tool_count = 0
+
+            services.append({
+                "name": mcp_name,
+                "description": srv.description,
+                "status": status,
+                "tool_count": tool_count,
+                "url_configured": url_configured,
+            })
+        return services
+
     def list_plugins(self) -> List[dict]:
-        """Return serializable info for all discovered plugins."""
-        return [
-            {
-                "name": p.manifest.name,
+        """Return serializable info for all discovered plugins, including live MCP status."""
+        result = []
+        for p in self._discovered:
+            name = p.manifest.name
+            validation_status, validation_issues = self.validate_requirements(p)
+            result.append({
+                "name": name,
                 "version": p.manifest.version,
                 "description": p.manifest.description,
                 "author": p.manifest.author,
-                "enabled": self.is_enabled(p.manifest.name),
-            }
-            for p in self._discovered
-        ]
+                "enabled": self.is_enabled(name),
+                "validation_status": validation_status,
+                "validation_issues": validation_issues,
+                "services": self._get_services(p),
+                "settings_schema": [s.model_dump() for s in (p.manifest.settings or [])],
+                "settings_values": self.get_all_plugin_settings(name),
+            })
+        return result
 
     # ── Loading ───────────────────────────────────────────────────────────────
 
