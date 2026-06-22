@@ -1,5 +1,6 @@
 """Tests for PluginManager discovery and lifecycle."""
 import json
+import os
 import textwrap
 from pathlib import Path
 import pytest
@@ -23,6 +24,19 @@ def _make_plugin(tmp_path: Path, name: str, has_tools: bool = False) -> Path:
             TOOL_SCHEMAS = [{"type": "function", "function": {"name": "test_tool", "description": "x", "parameters": {"type": "object", "properties": {}}}}]
             TOOL_IMPLEMENTATIONS = {}
         """))
+    return plugin_dir
+
+
+def _make_plugin_with_requires(tmp_path, name, requires_yaml):
+    plugin_dir = tmp_path / name
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        f"""\
+name: {name}
+version: 1.0.0
+{requires_yaml}
+"""
+    )
     return plugin_dir
 
 
@@ -225,3 +239,64 @@ def test_save_plugin_settings_does_not_clobber_enabled(tmp_path):
     mgr.save_plugin_settings("plugin-a", {"key": "val"})
     # enabled list unchanged
     assert mgr.is_enabled("plugin-a")
+
+
+def test_validate_requirements_all_ok(tmp_path, monkeypatch):
+    monkeypatch.setenv("MY_URL", "http://example.com")
+    state_file = tmp_path / "plugins.json"
+    _make_plugin_with_requires(tmp_path, "req-plugin", "requires:\n  - env: MY_URL")
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+    status, issues = mgr.validate_requirements(mgr._discovered[0])
+    assert status == "ok"
+    assert issues == []
+
+
+def test_validate_requirements_missing_env_is_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("MISSING_VAR", raising=False)
+    state_file = tmp_path / "plugins.json"
+    _make_plugin_with_requires(tmp_path, "req-plugin", "requires:\n  - env: MISSING_VAR")
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+    status, issues = mgr.validate_requirements(mgr._discovered[0])
+    assert status == "error"
+    assert any(i["type"] == "env_missing" and i["env"] == "MISSING_VAR" for i in issues)
+    assert issues[0]["severity"] == "error"
+
+
+def test_validate_requirements_missing_integration_is_warning(tmp_path, monkeypatch):
+    monkeypatch.delenv("VAULT_ADDR", raising=False)
+    state_file = tmp_path / "plugins.json"
+    _make_plugin_with_requires(tmp_path, "req-plugin", "requires:\n  - integration: vault")
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+    status, issues = mgr.validate_requirements(mgr._discovered[0])
+    assert status == "warning"
+    assert any(i["type"] == "integration_missing" and i["integration"] == "vault" for i in issues)
+    assert issues[0]["severity"] == "warning"
+
+
+def test_validate_requirements_no_requires_is_ok(tmp_path):
+    state_file = tmp_path / "plugins.json"
+    _make_plugin(tmp_path, "plain")
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+    status, issues = mgr.validate_requirements(mgr._discovered[0])
+    assert status == "ok"
+    assert issues == []
+
+
+def test_validate_worst_severity_wins(tmp_path, monkeypatch):
+    monkeypatch.setenv("GOOD_VAR", "set")
+    monkeypatch.delenv("BAD_VAR", raising=False)
+    monkeypatch.delenv("VAULT_ADDR", raising=False)
+    state_file = tmp_path / "plugins.json"
+    _make_plugin_with_requires(
+        tmp_path, "req-plugin",
+        "requires:\n  - env: GOOD_VAR\n  - env: BAD_VAR\n  - integration: vault"
+    )
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+    status, issues = mgr.validate_requirements(mgr._discovered[0])
+    assert status == "error"   # error beats warning
+    assert len(issues) == 2    # BAD_VAR (error) + vault (warning)

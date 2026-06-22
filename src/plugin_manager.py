@@ -97,6 +97,48 @@ class PluginManager:
         """Return all stored settings for a plugin."""
         return self._load_state().get("settings", {}).get(plugin_name, {})
 
+    def validate_requirements(self, plugin: "Plugin") -> tuple[str, list]:
+        """Check all requires: entries for a plugin.
+
+        Returns (validation_status, issues) where:
+          - validation_status: "ok" | "warning" | "error"
+          - issues: list of dicts with keys type, severity, and env or integration
+        """
+        import os
+        if not plugin.manifest.requires:
+            return "ok", []
+
+        issues = []
+        severity_rank = {"ok": 0, "warning": 1, "error": 2}
+        worst = "ok"
+
+        for req in plugin.manifest.requires:
+            if req.env:
+                if not os.environ.get(req.env, "").strip():
+                    issues.append({"type": "env_missing", "env": req.env, "severity": "error"})
+                    if severity_rank["error"] > severity_rank[worst]:
+                        worst = "error"
+            elif req.integration:
+                if not self._integration_configured(req.integration):
+                    issues.append({
+                        "type": "integration_missing",
+                        "integration": req.integration,
+                        "severity": "warning",
+                    })
+                    if severity_rank["warning"] > severity_rank[worst]:
+                        worst = "warning"
+
+        return worst, issues
+
+    def _integration_configured(self, integration_type: str) -> bool:
+        """Return True if the named integration type appears to be set up."""
+        import os
+        if integration_type == "vault":
+            # OpenBao / HashiCorp Vault: check for the standard address env var
+            return bool(os.environ.get("VAULT_ADDR", "").strip())
+        # Unknown integration types: treat as not configured (warning, not error)
+        return False
+
     def list_plugins(self) -> List[dict]:
         """Return serializable info for all discovered plugins."""
         return [
