@@ -130,6 +130,7 @@ def test_settings_parsed(tmp_path):
     assert s.key == "research_sink"
     assert s.type == "select"
     assert s.default == "sb_mcp"
+    assert s.options is not None
     assert len(s.options) == 2
     u = manifest.settings[1]
     assert u.key == "chroma_url"
@@ -142,3 +143,15 @@ def test_requires_absent_is_none(tmp_path):
     manifest = PluginManifest.from_path(tmp_path / "plugin.yaml")
     assert manifest.requires is None
     assert manifest.settings is None
+
+
+def test_requires_empty_entry_raises(tmp_path):
+    yaml_text = textwrap.dedent("""\
+        name: my-plugin
+        version: 1.0.0
+        requires:
+          - {}
+    """)
+    (tmp_path / "plugin.yaml").write_text(yaml_text)
+    with pytest.raises(ManifestError):
+        PluginManifest.from_path(tmp_path / "plugin.yaml")

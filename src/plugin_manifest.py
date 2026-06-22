@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,12 @@ class PluginRequirement(BaseModel):
     env: Optional[str] = None
     integration: Optional[str] = None
 
+    @model_validator(mode='after')
+    def at_least_one_set(self) -> 'PluginRequirement':
+        if self.env is None and self.integration is None:
+            raise ValueError("PluginRequirement must specify 'env' or 'integration'")
+        return self
+
 
 class _SettingOption(BaseModel):
     value: str
@@ -44,7 +50,7 @@ class PluginSetting(BaseModel):
     """One entry in the plugin's settings: list."""
     key: str
     label: str
-    type: str                            # select | url | text | toggle
+    type: Literal["select", "url", "text", "toggle"]
     options: Optional[List[_SettingOption]] = None
     default: Optional[Any] = None
     placeholder: Optional[str] = None
