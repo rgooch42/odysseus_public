@@ -374,3 +374,27 @@ def test_list_plugins_services_with_mcp_manager(tmp_path, monkeypatch):
     assert p["services"] == [
         {"name": "SB", "description": "SecondBrain vault", "status": "connected", "tool_count": 12, "url_configured": True}
     ]
+
+
+def test_list_plugins_services_hyphenated_mcp_name(tmp_path, monkeypatch):
+    """server_id must normalize hyphens/spaces in MCP server names, matching register_mcp_servers."""
+    monkeypatch.setenv("MY_URL", "http://example.com")
+    state_file = tmp_path / "plugins.json"
+    plugin_dir = tmp_path / "my-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        "name: my-plugin\nversion: 1.0.0\nmcp_servers:\n  - name: my-server\n    url_env: MY_URL\n    description: hyphen test\n"
+    )
+    mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file)
+    mgr.discover()
+
+    class FakeMCPManager:
+        def get_server_status(self, server_id):
+            # register_mcp_servers would produce builtin_http_plugin_my_plugin_my_server
+            if server_id == "builtin_http_plugin_my_plugin_my_server":
+                return {"status": "connected", "tool_count": 5}
+            return {"status": "disconnected"}
+
+    mgr.set_mcp_manager(FakeMCPManager())
+    plugins = mgr.list_plugins()
+    assert plugins[0]["services"][0]["status"] == "connected"

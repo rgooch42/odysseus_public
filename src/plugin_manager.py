@@ -150,7 +150,8 @@ class PluginManager:
         plugin_name_normalized = plugin.manifest.name.replace("-", "_")
         for srv in (plugin.manifest.mcp_servers or []):
             mcp_name = srv.name
-            server_id = f"builtin_http_plugin_{plugin_name_normalized}_{mcp_name.lower()}"
+            safe_mcp_name = mcp_name.lower().replace("-", "_").replace(" ", "_")
+            server_id = f"builtin_http_plugin_{plugin_name_normalized}_{safe_mcp_name}"
             env_key = srv.url_env
             url_configured = bool(os.environ.get(env_key, "").strip()) if env_key else False
 
