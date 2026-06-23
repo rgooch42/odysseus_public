@@ -29,7 +29,7 @@ class PluginManager:
         plugins_dir: Path,
         state_file: Path,
         registry: Optional[PluginRegistry] = None,
-        provider: Optional[Any] = None,
+        provider: Optional["SettingsProvider"] = None,
     ) -> None:
         self._plugins_dir = Path(plugins_dir)
         self._state_file = Path(state_file)
@@ -90,8 +90,11 @@ class PluginManager:
                     "settings": plugin_settings,
                 })
         migrated_path = self._state_file.with_suffix(".json.migrated")
-        self._state_file.rename(migrated_path)
-        logger.info("Migrated legacy plugins.json → per-plugin settings files (%s)", migrated_path)
+        try:
+            self._state_file.rename(migrated_path)
+            logger.info("Migrated legacy plugins.json → per-plugin settings files (%s)", migrated_path)
+        except OSError as e:
+            logger.warning("Migration complete but could not rename plugins.json: %s — remove it manually", e)
 
     # ── Enable / disable state ────────────────────────────────────────────────
 
