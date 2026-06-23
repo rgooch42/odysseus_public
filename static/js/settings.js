@@ -3858,7 +3858,7 @@ async function initUnifiedIntegrations() {
             value="${_esc(hdrsVal)}"
             placeholder="${_esc(hdrsSchema.placeholder || '')}"
             style="flex:1;font-size:10px;padding:2px 5px;background:var(--bg,#1e1e2e);border:1px solid var(--border,#444);border-radius:4px;color:var(--fg);min-width:0" />
-          ${hdrsSchema.secret ? `<button type="button" class="admin-btn-sm svc-reveal-btn" data-target="svc-hdr" data-svc="${_esc(svc.name)}" style="font-size:9px;padding:1px 5px;opacity:0.55" title="Show/hide">👁</button>` : ''}
+          ${hdrsSchema.secret ? `<button type="button" class="admin-btn-sm svc-reveal-btn" data-svc="${_esc(svc.name)}" style="font-size:9px;padding:1px 5px;opacity:0.55" title="Show/hide">👁</button>` : ''}
           <button class="admin-btn-sm svc-reset-btn" data-svc="${_esc(svc.name)}" data-key="headers" data-default="" style="font-size:9px;padding:1px 5px;opacity:0.55" title="Clear">↺</button>
         </div>` : '';
 
@@ -3933,7 +3933,7 @@ async function initUnifiedIntegrations() {
           ${settingsHtml}
         </div>` : ''}
 
-        ${plugin.validation_issues ? `
+        ${plugin.validation_issues && plugin.validation_issues.length ? `
         <div style="margin-bottom:12px">
           <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Dependencies</div>
           ${depsHtml}
