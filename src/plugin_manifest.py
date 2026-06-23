@@ -27,6 +27,7 @@ class PluginMcpServer(BaseModel):
     headers_env: Optional[str] = None
     description: str = ""
     transport: str = "http"
+    settings: Optional[List["PluginSetting"]] = None
 
 
 class PluginRequirement(BaseModel):
@@ -55,11 +56,19 @@ class PluginSetting(BaseModel):
     default: Optional[Any] = None
     placeholder: Optional[str] = None
     env_hint: Optional[str] = None
+    secret: bool = False
+
+
+# Rebuild PluginMcpServer now that PluginSetting is defined (forward ref resolution)
+PluginMcpServer.model_rebuild()
 
 
 class PluginManifest(BaseModel):
     name: str
+    guid: Optional[str] = None
     version: str
+    addon_type: str = "mcp"
+    min_odysseus_version: Optional[str] = None
     description: str = ""
     author: str = ""
     routes: Optional[str] = None   # relative path to routes module, e.g. "routes.py"
@@ -76,21 +85,34 @@ class PluginManifest(BaseModel):
             raise ValueError("name must not be empty")
         return v.strip()
 
+    @field_validator("addon_type")
+    @classmethod
+    def addon_type_known(cls, v: str) -> str:
+        known = {"mcp", "secrets_backend"}
+        if v not in known:
+            logger.warning("Unknown addon_type %r — plugin will load but may not function", v)
+        return v
+
     @classmethod
     def from_path(cls, path: Path) -> "PluginManifest":
         try:
             raw = path.read_text(encoding="utf-8")
         except OSError as e:
             raise ManifestError(f"Cannot read {path}: {e}") from e
+        return cls.from_yaml_str(raw, source=str(path))
+
+    @classmethod
+    def from_yaml_str(cls, content: str, source: str = "<string>") -> "PluginManifest":
+        """Parse a manifest from a YAML string (used for plugin import)."""
         try:
-            data = yaml.safe_load(raw) or {}
+            data = yaml.safe_load(content) or {}
         except yaml.YAMLError as e:
-            raise ManifestError(f"Invalid YAML in {path}: {e}") from e
+            raise ManifestError(f"Invalid YAML in {source}: {e}") from e
         if not isinstance(data, dict):
-            raise ManifestError(f"{path}: plugin.yaml must be a mapping")
+            raise ManifestError(f"{source}: plugin.yaml must be a mapping")
         if "name" not in data:
-            raise ManifestError(f"{path}: manifest missing required field 'name'")
+            raise ManifestError(f"{source}: manifest missing required field 'name'")
         try:
             return cls(**data)
         except Exception as e:
-            raise ManifestError(f"{path}: {e}") from e
+            raise ManifestError(f"{source}: {e}") from e

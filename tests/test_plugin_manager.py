@@ -331,7 +331,7 @@ def test_list_plugins_includes_settings_schema_and_values(tmp_path):
     mgr.save_plugin_settings("cfg-plugin", {"my_key": "hello"})
     plugins = mgr.list_plugins()
     p = plugins[0]
-    assert p["settings_schema"] == [{"key": "my_key", "label": "My Key", "type": "text", "options": None, "default": None, "placeholder": None, "env_hint": None}]
+    assert p["settings_schema"] == [{"key": "my_key", "label": "My Key", "type": "text", "options": None, "default": None, "placeholder": None, "env_hint": None, "secret": False}]
     assert p["settings_values"] == {"my_key": "hello"}
 
 

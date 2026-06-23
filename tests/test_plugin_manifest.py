@@ -155,3 +155,113 @@ def test_requires_empty_entry_raises(tmp_path):
     (tmp_path / "plugin.yaml").write_text(yaml_text)
     with pytest.raises(ManifestError):
         PluginManifest.from_path(tmp_path / "plugin.yaml")
+
+
+def test_manifest_guid_is_none_when_absent(tmp_path):
+    (tmp_path / "plugin.yaml").write_text("name: p\nversion: 1.0.0\n")
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert m.guid is None
+
+
+def test_manifest_guid_stored_when_set(tmp_path):
+    (tmp_path / "plugin.yaml").write_text(
+        "name: p\nversion: 1.0.0\nguid: abc-123-def\n"
+    )
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert m.guid == "abc-123-def"
+
+
+def test_manifest_addon_type_defaults_to_mcp(tmp_path):
+    (tmp_path / "plugin.yaml").write_text("name: p\nversion: 1.0.0\n")
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert m.addon_type == "mcp"
+
+
+def test_manifest_addon_type_unknown_accepted_not_rejected(tmp_path):
+    (tmp_path / "plugin.yaml").write_text(
+        "name: p\nversion: 1.0.0\naddon_type: future-type\n"
+    )
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert m.addon_type == "future-type"
+
+
+def test_manifest_min_odysseus_version_optional(tmp_path):
+    (tmp_path / "plugin.yaml").write_text("name: p\nversion: 1.0.0\n")
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert m.min_odysseus_version is None
+
+
+def test_plugin_setting_secret_defaults_false(tmp_path):
+    yaml_text = textwrap.dedent("""\
+        name: p
+        version: 1.0.0
+        settings:
+          - key: url
+            label: URL
+            type: url
+    """)
+    (tmp_path / "plugin.yaml").write_text(yaml_text)
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert m.settings[0].secret is False
+
+
+def test_plugin_setting_secret_true_when_set(tmp_path):
+    yaml_text = textwrap.dedent("""\
+        name: p
+        version: 1.0.0
+        settings:
+          - key: token
+            label: Token
+            type: text
+            secret: true
+    """)
+    (tmp_path / "plugin.yaml").write_text(yaml_text)
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert m.settings[0].secret is True
+
+
+def test_mcp_server_inline_settings_parsed(tmp_path):
+    yaml_text = textwrap.dedent("""\
+        name: p
+        version: 1.0.0
+        mcp_servers:
+          - name: SB
+            url_env: SB_URL
+            settings:
+              - key: url
+                label: Server URL
+                type: url
+                placeholder: http://change-me/mcp
+              - key: headers
+                label: Auth Headers
+                type: text
+                secret: true
+    """)
+    (tmp_path / "plugin.yaml").write_text(yaml_text)
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert len(m.mcp_servers[0].settings) == 2
+    assert m.mcp_servers[0].settings[1].secret is True
+
+
+def test_mcp_server_settings_none_when_absent(tmp_path):
+    yaml_text = "name: p\nversion: 1.0.0\nmcp_servers:\n  - name: SB\n    url_env: SB_URL\n"
+    (tmp_path / "plugin.yaml").write_text(yaml_text)
+    m = PluginManifest.from_path(tmp_path / "plugin.yaml")
+    assert m.mcp_servers[0].settings is None
+
+
+def test_from_yaml_str_parses_valid_manifest():
+    content = "name: p\nversion: 1.0.0\naddon_type: mcp\n"
+    m = PluginManifest.from_yaml_str(content)
+    assert m.name == "p"
+    assert m.addon_type == "mcp"
+
+
+def test_from_yaml_str_raises_manifest_error_on_missing_name():
+    with pytest.raises(ManifestError, match="missing required field"):
+        PluginManifest.from_yaml_str("version: 1.0.0\n")
+
+
+def test_from_yaml_str_raises_manifest_error_on_bad_yaml():
+    with pytest.raises(ManifestError, match="Invalid YAML"):
+        PluginManifest.from_yaml_str("key: : bad : yaml :")
