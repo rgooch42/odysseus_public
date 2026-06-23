@@ -1,8 +1,12 @@
 """Plugin enable/disable settings API."""
 import logging
 import os
+import re
+from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
 from src.plugin_manager import PluginManager
+
+_SAFE_PLUGIN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 logger = logging.getLogger(__name__)
 
@@ -122,10 +126,10 @@ def setup_plugin_settings_routes(manager: PluginManager) -> APIRouter:
                     svc_data.pop("headers", None)
                 svcs = {**svcs, srv.name: svc_data}
         sanitized["services"] = svcs
-        safe_name = name.replace('"', "").replace(";", "").replace("/", "")
+        encoded_name = quote(name, safe="")
         return JSONResponse(
             content=sanitized,
-            headers={"Content-Disposition": f'attachment; filename="{safe_name}-settings.json"'},
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}-settings.json"},
         )
 
     @router.post("/{name}/import-settings")
@@ -233,6 +237,13 @@ def setup_plugin_settings_routes(manager: PluginManager) -> APIRouter:
                 "incoming": manifest.version,
             }
 
+        if not _SAFE_PLUGIN_NAME.match(manifest.name):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Plugin name '{manifest.name}' contains invalid characters. "
+                       "Names must start with a letter/digit and contain only letters, digits, hyphens, underscores, or dots.",
+            )
+
         if not confirm:
             return {
                 "manifest": manifest.model_dump(),
@@ -241,7 +252,7 @@ def setup_plugin_settings_routes(manager: PluginManager) -> APIRouter:
                 "min_version_ok": True,  # version gate is future work
             }
 
-        # Step 2: write to disk
+        # Step 2: write to disk — name already validated against _SAFE_PLUGIN_NAME
         if filename.endswith(".zip"):
             plugin_dir = manager._plugins_dir / manifest.name
             plugin_dir.mkdir(parents=True, exist_ok=True)
