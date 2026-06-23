@@ -79,8 +79,11 @@ def test_enable_persists_to_state_file(tmp_path):
     mgr = PluginManager(plugins_dir=tmp_path, state_file=state_file, registry=registry)
     mgr.discover()
     mgr.set_enabled("plugin-a", True)
-    saved = json.loads(state_file.read_text())
-    assert "plugin-a" in saved.get("enabled", [])
+    # Provider-backed: per-plugin JSON file holds the enabled flag
+    settings_file = tmp_path / "plugin-settings" / "plugin-a.json"
+    assert settings_file.exists()
+    saved = json.loads(settings_file.read_text())
+    assert saved.get("enabled") is True
 
 
 def test_load_enabled_registers_tools(tmp_path):
@@ -335,7 +338,8 @@ def test_list_plugins_includes_settings_schema_and_values(tmp_path):
     assert p["settings_values"] == {"my_key": "hello"}
 
 
-def test_list_plugins_services_no_mcp_manager(tmp_path):
+def test_list_plugins_services_no_mcp_manager(tmp_path, monkeypatch):
+    monkeypatch.delenv("SB_URL", raising=False)
     state_file = tmp_path / "plugins.json"
     plugin_dir = tmp_path / "svc-plugin"
     plugin_dir.mkdir()
@@ -346,9 +350,14 @@ def test_list_plugins_services_no_mcp_manager(tmp_path):
     mgr.discover()
     plugins = mgr.list_plugins()
     p = plugins[0]
-    assert p["services"] == [
-        {"name": "SB", "description": "SecondBrain vault", "status": "unconfigured", "tool_count": 0, "url_configured": False}
-    ]
+    svc = p["services"][0]
+    assert svc["name"] == "SB"
+    assert svc["description"] == "SecondBrain vault"
+    assert svc["status"] == "unconfigured"
+    assert svc["tool_count"] == 0
+    assert svc["url_configured"] is False
+    assert svc["url_source"] == "unset"
+    assert svc["enabled"] is True
 
 
 def test_list_plugins_services_with_mcp_manager(tmp_path, monkeypatch):
@@ -371,9 +380,14 @@ def test_list_plugins_services_with_mcp_manager(tmp_path, monkeypatch):
     mgr.set_mcp_manager(FakeMCPManager())
     plugins = mgr.list_plugins()
     p = plugins[0]
-    assert p["services"] == [
-        {"name": "SB", "description": "SecondBrain vault", "status": "connected", "tool_count": 12, "url_configured": True}
-    ]
+    svc = p["services"][0]
+    assert svc["name"] == "SB"
+    assert svc["description"] == "SecondBrain vault"
+    assert svc["status"] == "connected"
+    assert svc["tool_count"] == 12
+    assert svc["url_configured"] is True
+    assert svc["url_source"] == "env"
+    assert svc["enabled"] is True
 
 
 def test_list_plugins_services_hyphenated_mcp_name(tmp_path, monkeypatch):
@@ -398,3 +412,161 @@ def test_list_plugins_services_hyphenated_mcp_name(tmp_path, monkeypatch):
     mgr.set_mcp_manager(FakeMCPManager())
     plugins = mgr.list_plugins()
     assert plugins[0]["services"][0]["status"] == "connected"
+
+
+# ── Task 4: LocalJSONProvider, per-service enable/disable, URL resolution, migration ──
+
+from src.plugin_settings_provider import LocalJSONProvider
+
+
+def _make_mcp_plugin_full(tmp_path: Path, name: str, url_env: str = "SB_URL") -> Path:
+    plugin_dir = tmp_path / name
+    plugin_dir.mkdir(exist_ok=True)
+    (plugin_dir / "plugin.yaml").write_text(textwrap.dedent(f"""\
+        name: {name}
+        version: 1.0.0
+        guid: test-guid-{name}
+        addon_type: mcp
+        mcp_servers:
+          - name: SB
+            url_env: {url_env}
+            headers_env: SB_HEADERS
+            settings:
+              - key: url
+                label: Server URL
+                type: url
+                placeholder: http://change-me/mcp
+              - key: headers
+                label: Auth Headers
+                type: text
+                secret: true
+    """))
+    return plugin_dir
+
+
+def _make_mgr(tmp_path: Path, name: str = "test-plugin") -> "PluginManager":
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir(exist_ok=True)
+    settings_dir = tmp_path / "plugin-settings"
+    provider = LocalJSONProvider(settings_dir)
+    state_file = tmp_path / "plugins.json"
+    _make_mcp_plugin_full(plugins_dir, name)
+    registry = PluginRegistry()
+    mgr = PluginManager(
+        plugins_dir=plugins_dir,
+        state_file=state_file,
+        registry=registry,
+        provider=provider,
+    )
+    mgr.discover()
+    return mgr
+
+
+def test_service_enabled_by_default(tmp_path):
+    mgr = _make_mgr(tmp_path)
+    assert mgr.is_service_enabled("test-plugin", "SB") is True
+
+
+def test_set_service_enabled_persists(tmp_path):
+    mgr = _make_mgr(tmp_path)
+    mgr.set_service_enabled("test-plugin", "SB", False)
+    assert mgr.is_service_enabled("test-plugin", "SB") is False
+
+
+def test_save_service_settings_and_read_back(tmp_path):
+    mgr = _make_mgr(tmp_path)
+    mgr.save_service_settings("test-plugin", "SB", {"url": "http://docker.local/mcp"})
+    assert mgr.get_service_setting("test-plugin", "SB", "url") == "http://docker.local/mcp"
+
+
+def test_resolve_mcp_url_prefers_env_over_local(tmp_path, monkeypatch):
+    mgr = _make_mgr(tmp_path)
+    monkeypatch.setenv("SB_URL", "http://from-env/mcp")
+    mgr.save_service_settings("test-plugin", "SB", {"url": "http://local/mcp"})
+    plugin = next(p for p in mgr._discovered if p.manifest.name == "test-plugin")
+    srv = plugin.manifest.mcp_servers[0]
+    url, source = mgr.resolve_mcp_url("test-plugin", srv)
+    assert url == "http://from-env/mcp"
+    assert source == "env"
+
+
+def test_resolve_mcp_url_falls_back_to_local(tmp_path, monkeypatch):
+    monkeypatch.delenv("SB_URL", raising=False)
+    mgr = _make_mgr(tmp_path)
+    mgr.save_service_settings("test-plugin", "SB", {"url": "http://local/mcp"})
+    plugin = next(p for p in mgr._discovered if p.manifest.name == "test-plugin")
+    srv = plugin.manifest.mcp_servers[0]
+    url, source = mgr.resolve_mcp_url("test-plugin", srv)
+    assert url == "http://local/mcp"
+    assert source == "local"
+
+
+def test_resolve_mcp_url_returns_unset_when_neither(tmp_path, monkeypatch):
+    monkeypatch.delenv("SB_URL", raising=False)
+    mgr = _make_mgr(tmp_path)
+    plugin = next(p for p in mgr._discovered if p.manifest.name == "test-plugin")
+    srv = plugin.manifest.mcp_servers[0]
+    url, source = mgr.resolve_mcp_url("test-plugin", srv)
+    assert url is None
+    assert source == "unset"
+
+
+def test_resolve_mcp_headers_parses_json_from_env(tmp_path, monkeypatch):
+    mgr = _make_mgr(tmp_path)
+    monkeypatch.setenv("SB_HEADERS", '{"Authorization": "Bearer tok"}')
+    plugin = next(p for p in mgr._discovered if p.manifest.name == "test-plugin")
+    srv = plugin.manifest.mcp_servers[0]
+    headers, source = mgr.resolve_mcp_headers("test-plugin", srv)
+    assert headers == {"Authorization": "Bearer tok"}
+    assert source == "env"
+
+
+def test_migration_from_legacy_plugins_json(tmp_path):
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    _make_mcp_plugin_full(plugins_dir, "alpha")
+    state_file = tmp_path / "plugins.json"
+    state_file.write_text(json.dumps({
+        "enabled": ["alpha"],
+        "settings": {"alpha": {"research_sink": "local"}},
+    }))
+    settings_dir = tmp_path / "plugin-settings"
+    provider = LocalJSONProvider(settings_dir)
+    mgr = PluginManager(
+        plugins_dir=plugins_dir,
+        state_file=state_file,
+        registry=PluginRegistry(),
+        provider=provider,
+    )
+    mgr.discover()
+
+    assert not state_file.exists()
+    assert (tmp_path / "plugins.json.migrated").exists()
+    loaded = provider.load("alpha")
+    assert loaded["enabled"] is True
+    assert loaded["settings"]["research_sink"] == "local"
+
+
+def test_list_plugins_includes_guid_and_addon_type(tmp_path):
+    mgr = _make_mgr(tmp_path)
+    plugins = mgr.list_plugins()
+    p = next(x for x in plugins if x["name"] == "test-plugin")
+    assert p["guid"] == "test-guid-test-plugin"
+    assert p["addon_type"] == "mcp"
+
+
+def test_list_plugins_service_url_source_unset(tmp_path, monkeypatch):
+    monkeypatch.delenv("SB_URL", raising=False)
+    mgr = _make_mgr(tmp_path)
+    plugins = mgr.list_plugins()
+    svc = next(x for x in plugins if x["name"] == "test-plugin")["services"][0]
+    assert svc["url_source"] == "unset"
+    assert svc["enabled"] is True
+
+
+def test_list_plugins_service_url_source_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("SB_URL", "http://env/mcp")
+    mgr = _make_mgr(tmp_path)
+    plugins = mgr.list_plugins()
+    svc = next(x for x in plugins if x["name"] == "test-plugin")["services"][0]
+    assert svc["url_source"] == "env"
