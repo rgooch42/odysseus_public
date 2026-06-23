@@ -3785,11 +3785,10 @@ async function initUnifiedIntegrations() {
       if (r.ok) plugin = await r.json();
     } catch (_) {}
 
+    // ── Deps section (reused from Task 7) ─────────────────────────────────
     const depsHtml = (plugin.validation_issues && plugin.validation_issues.length)
       ? plugin.validation_issues.map(issue => {
           const label = issue.env || issue.integration;
-          // If the env var is a URL var and a service with a local/env-stored URL
-          // has a name that appears in the env var name, treat it as satisfied.
           const satisfiedLocally = issue.type === 'env_missing' && issue.env &&
             (plugin.services || []).some(svc =>
               (svc.url_source === 'local' || svc.url_source === 'env') &&
@@ -3805,89 +3804,165 @@ async function initUnifiedIntegrations() {
         }).join('')
       : '<div style="font-size:11px;color:var(--color-success,#50fa7b)">✓ All dependencies satisfied</div>';
 
-    const servicesHtml = (plugin.services || []).map(svc => {
+    // ── Helper: toggle slider HTML ─────────────────────────────────────────
+    function _toggleHtml(id, checked) {
+      return `<span style="position:relative;display:inline-block;width:28px;height:16px;flex-shrink:0">
+        <input type="checkbox" id="${id}" ${checked ? 'checked' : ''} style="opacity:0;width:0;height:0;position:absolute">
+        <span class="tog-track" data-for="${id}" style="position:absolute;inset:0;background:${checked ? 'var(--accent,#bd93f9)' : 'color-mix(in srgb,var(--fg) 20%,transparent)'};border-radius:16px;transition:background 0.2s;cursor:pointer"></span>
+        <span class="tog-thumb" data-for="${id}" style="position:absolute;top:1px;left:${checked ? '13px' : '1px'};width:14px;height:14px;background:#fff;border-radius:50%;transition:left 0.2s;pointer-events:none"></span>
+      </span>`;
+    }
+    function _syncToggle(id, checked) {
+      formEl.querySelectorAll(`.tog-track[data-for="${id}"]`).forEach(t => {
+        t.style.background = checked ? 'var(--accent,#bd93f9)' : 'color-mix(in srgb,var(--fg) 20%,transparent)';
+      });
+      formEl.querySelectorAll(`.tog-thumb[data-for="${id}"]`).forEach(t => {
+        t.style.left = checked ? '13px' : '1px';
+      });
+    }
+
+    // ── Services HTML ──────────────────────────────────────────────────────
+    const servicesHtml = (plugin.services || []).map((svc, idx) => {
       const dot = svc.status === 'connected' ? '#50fa7b' : svc.status === 'unconfigured' ? '#555' : '#ffb86c';
-      const toolLabel = svc.status === 'connected' ? `${svc.enabled_tool_count}/${svc.tool_count} tools` : '—';
-      const dimmed = svc.status === 'unconfigured' ? 'opacity:0.5;' : '';
-      return `<div style="${dimmed}display:flex;align-items:center;gap:8px;padding:5px 8px;border:1px solid var(--border,#333);border-radius:5px;font-size:11px">
-        <span style="width:6px;height:6px;border-radius:50%;background:${dot};flex-shrink:0"></span>
-        <span style="flex:1"><strong>${_esc(svc.name)}</strong> — ${_esc(svc.description || '')}</span>
-        <span style="opacity:0.4">${toolLabel}</span>
-        <button class="admin-btn-sm plugin-test-btn" data-plugin="${_esc(pluginName)}" data-svc="${_esc(svc.name)}" style="font-size:9px;padding:2px 7px;" ${svc.status === 'unconfigured' ? 'disabled' : ''}>Test</button>
+      const toolLabel = svc.status === 'connected' ? `${svc.enabled_tool_count ?? svc.tool_count}/${svc.tool_count} tools` : '—';
+      const svcToggleId = `svc-tog-${idx}`;
+      const svcEnabled = svc.enabled !== false;
+
+      // Find settings schema entries for url and headers
+      const schema = svc.settings_schema || [];
+      const urlSchema = schema.find(s => s.key === 'url');
+      const hdrsSchema = schema.find(s => s.key === 'headers');
+      const vals = svc.settings_values || {};
+      const urlVal = vals['url'] || '';
+      const hdrsVal = vals['headers'] || '';
+      const isEnvLocked = svc.url_source === 'env';
+      const sourceLabel = svc.url_source === 'env' ? 'env' : svc.url_source === 'local' ? 'local' : 'unset';
+      const lockIcon = isEnvLocked ? ' 🔒' : '';
+
+      const urlField = urlSchema ? `
+        <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
+          <label style="font-size:10px;opacity:0.6;min-width:56px">${_esc(urlSchema.label)}${lockIcon}</label>
+          <input class="svc-url-field" data-svc="${_esc(svc.name)}" data-key="url"
+            value="${_esc(urlVal)}"
+            placeholder="${_esc(urlSchema.placeholder || '')}"
+            ${isEnvLocked ? 'disabled' : ''}
+            style="flex:1;font-size:10px;padding:2px 5px;background:var(--bg,#1e1e2e);border:1px solid ${isEnvLocked ? 'color-mix(in srgb,var(--fg) 15%,transparent)' : 'var(--border,#444)'};border-radius:4px;color:${isEnvLocked ? 'color-mix(in srgb,var(--fg) 45%,transparent)' : 'var(--fg)'};min-width:0" />
+          ${!isEnvLocked ? `<button class="admin-btn-sm svc-reset-btn" data-svc="${_esc(svc.name)}" data-key="url" data-default="${_esc(urlSchema.placeholder || '')}" style="font-size:9px;padding:1px 5px;opacity:0.55" title="Reset to placeholder">↺</button>` : `<span style="font-size:9px;padding:2px 6px;border:1px solid color-mix(in srgb,var(--accent,#bd93f9) 40%,transparent);border-radius:3px;color:var(--accent,#bd93f9);opacity:0.7">env</span>`}
+        </div>` : '';
+
+      const hdrsField = hdrsSchema ? `
+        <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
+          <label style="font-size:10px;opacity:0.6;min-width:56px">${_esc(hdrsSchema.label)}</label>
+          <input class="svc-hdr-field" data-svc="${_esc(svc.name)}" data-key="headers"
+            type="${hdrsSchema.secret ? 'password' : 'text'}"
+            value="${_esc(hdrsVal)}"
+            placeholder="${_esc(hdrsSchema.placeholder || '')}"
+            style="flex:1;font-size:10px;padding:2px 5px;background:var(--bg,#1e1e2e);border:1px solid var(--border,#444);border-radius:4px;color:var(--fg);min-width:0" />
+          ${hdrsSchema.secret ? `<button type="button" class="admin-btn-sm svc-reveal-btn" data-target="svc-hdr" data-svc="${_esc(svc.name)}" style="font-size:9px;padding:1px 5px;opacity:0.55" title="Show/hide">👁</button>` : ''}
+          <button class="admin-btn-sm svc-reset-btn" data-svc="${_esc(svc.name)}" data-key="headers" data-default="" style="font-size:9px;padding:1px 5px;opacity:0.55" title="Clear">↺</button>
+        </div>` : '';
+
+      const sourceRow = (urlSchema || hdrsSchema) ? `
+        <div style="font-size:9px;opacity:0.35;margin-top:2px">Source: ${_esc(sourceLabel)}</div>` : '';
+
+      return `<div class="plugin-svc-row" data-svc="${_esc(svc.name)}" style="padding:6px 8px;border:1px solid var(--border,#333);border-radius:6px;margin-bottom:5px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:${(urlSchema || hdrsSchema) ? '6px' : '0'}">
+          <span style="width:6px;height:6px;border-radius:50%;background:${dot};flex-shrink:0"></span>
+          <span style="flex:1;font-size:11px"><strong>${_esc(svc.name)}</strong>${svc.description ? ' <span style="opacity:0.5">— ' + _esc(svc.description) + '</span>' : ''}</span>
+          <span style="font-size:10px;opacity:0.4">${toolLabel}</span>
+          <button class="admin-btn-sm plugin-test-btn" data-plugin="${_esc(pluginName)}" data-svc="${_esc(svc.name)}" style="font-size:9px;padding:2px 7px;" ${svc.status === 'unconfigured' ? 'disabled' : ''}>Test</button>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px">
+            ${_toggleHtml(svcToggleId, svcEnabled)}
+          </label>
+        </div>
+        ${urlField}${hdrsField}${sourceRow}
       </div>`;
     }).join('');
 
+    // ── Plugin-level settings HTML ─────────────────────────────────────────
     const schema = plugin.settings_schema || [];
     const values = plugin.settings_values || {};
     const settingsHtml = schema.map(field => {
       const val = values[field.key] ?? field.default ?? '';
+      const resetDefault = String(field.default ?? field.placeholder ?? '');
       if (field.type === 'select') {
         const opts = (field.options || []).map(o =>
           `<option value="${_esc(o.value)}" ${o.value === val ? 'selected' : ''}>${_esc(o.label)}</option>`
         ).join('');
-        return `<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-bottom:6px">
-          <label style="opacity:0.8">${_esc(field.label)}</label>
+        return `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:6px">
+          <label style="flex:1;opacity:0.8">${_esc(field.label)}</label>
           <select class="plugin-setting-field" data-key="${_esc(field.key)}" style="font-size:11px;padding:3px 6px;background:var(--bg,#1e1e2e);border:1px solid var(--border,#444);border-radius:4px;color:var(--fg)">${opts}</select>
+          <button class="admin-btn-sm plugin-setting-reset" data-key="${_esc(field.key)}" data-default="${_esc(resetDefault)}" style="font-size:9px;padding:1px 5px;opacity:0.55" title="Reset to default">↺</button>
         </div>`;
       }
       const envHint = field.env_hint ? `<span style="font-size:9px;opacity:0.4;margin-left:4px">env: ${_esc(field.env_hint)}</span>` : '';
-      return `<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-bottom:6px">
-        <label style="opacity:0.8">${_esc(field.label)}${envHint}</label>
-        <input class="plugin-setting-field" data-key="${_esc(field.key)}" value="${_esc(String(val))}" placeholder="${_esc(field.placeholder || '')}" style="font-size:11px;padding:3px 6px;background:var(--bg,#1e1e2e);border:1px solid var(--border,#444);border-radius:4px;color:var(--fg);width:160px" />
+      const inputType = field.secret ? 'password' : 'text';
+      return `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:6px">
+        <label style="flex:1;opacity:0.8">${_esc(field.label)}${envHint}</label>
+        <input class="plugin-setting-field" data-key="${_esc(field.key)}" type="${inputType}" value="${_esc(String(val))}" placeholder="${_esc(field.placeholder || '')}" style="font-size:11px;padding:3px 6px;background:var(--bg,#1e1e2e);border:1px solid var(--border,#444);border-radius:4px;color:var(--fg);width:150px" />
+        <button class="admin-btn-sm plugin-setting-reset" data-key="${_esc(field.key)}" data-default="${_esc(resetDefault)}" style="font-size:9px;padding:1px 5px;opacity:0.55" title="Reset to default">↺</button>
       </div>`;
     }).join('');
 
+    // ── Full panel HTML ────────────────────────────────────────────────────
     formEl.innerHTML = `
       <div style="padding:12px 0">
+
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border,#333)">
           <div>
-            <strong>${_esc(plugin.name)}</strong> <span style="opacity:0.4;font-size:10px">v${_esc(plugin.version)} · ${_esc(plugin.author || '')}</span><br>
-            <span style="opacity:0.5;font-size:10px">${_esc(plugin.description || '')}</span>
+            <span style="font-weight:600;font-size:13px">${_esc(plugin.name)}</span>
+            <span style="opacity:0.4;font-size:10px"> v${_esc(plugin.version)}${plugin.author ? ' · ' + _esc(plugin.author) : ''}</span>
+            ${plugin.addon_type ? `<span style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;padding:1px 5px;border:1px solid color-mix(in srgb,var(--accent,#bd93f9) 40%,transparent);border-radius:3px;color:var(--accent,#bd93f9);background:color-mix(in srgb,var(--accent,#bd93f9) 10%,transparent);margin-left:6px">${_esc(plugin.addon_type)}</span>` : ''}
+            <br><span style="opacity:0.5;font-size:10px">${_esc(plugin.description || '')}</span>
           </div>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px">
             <span style="opacity:0.6">Enabled</span>
-            <span style="position:relative;display:inline-block;width:32px;height:18px">
-              <input type="checkbox" id="plugin-form-enabled" ${plugin.enabled ? 'checked' : ''} style="opacity:0;width:0;height:0;position:absolute">
-              <span id="plugin-form-enabled-track" style="position:absolute;inset:0;background:${plugin.enabled ? 'var(--accent,#bd93f9)' : 'color-mix(in srgb,var(--fg) 20%,transparent)'};border-radius:18px;transition:background 0.2s;cursor:pointer"></span>
-              <span id="plugin-form-enabled-thumb" style="position:absolute;top:2px;left:${plugin.enabled ? '16px' : '2px'};width:14px;height:14px;background:#fff;border-radius:50%;transition:left 0.2s;pointer-events:none"></span>
-            </span>
+            ${_toggleHtml('plugin-form-enabled', plugin.enabled)}
           </label>
         </div>
 
-        ${plugin.validation_issues && plugin.validation_issues.length ? `
+        ${plugin.services && plugin.services.length ? `
+        <div style="margin-bottom:12px">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Services</div>
+          ${servicesHtml}
+        </div>` : ''}
+
+        ${schema.length ? `
+        <div style="margin-bottom:12px">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Plugin Settings</div>
+          ${settingsHtml}
+        </div>` : ''}
+
+        ${plugin.validation_issues ? `
         <div style="margin-bottom:12px">
           <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Dependencies</div>
           ${depsHtml}
         </div>` : ''}
 
-        ${plugin.services && plugin.services.length ? `
-        <div style="margin-bottom:12px">
-          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Services</div>
-          <div style="display:flex;flex-direction:column;gap:4px">${servicesHtml}</div>
-        </div>` : ''}
+        <div id="plugin-form-msg" style="font-size:11px;min-height:16px;margin-bottom:8px"></div>
 
-        ${schema.length ? `
-        <div style="margin-bottom:12px">
-          <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.7px;opacity:0.45;margin-bottom:6px">Settings</div>
-          ${settingsHtml}
-        </div>` : ''}
-
-        <div id="plugin-form-msg" style="font-size:11px;min-height:16px;margin-bottom:6px"></div>
-        <div style="display:flex;justify-content:flex-end;gap:6px">
-          <button type="button" class="admin-btn-sm" id="plugin-form-cancel">Cancel</button>
-          <button type="button" class="admin-btn-add" id="plugin-form-save" style="font-size:11px">Save</button>
+        <div style="display:flex;justify-content:space-between;gap:6px">
+          <div style="display:flex;gap:6px">
+            <button type="button" class="admin-btn-sm" id="plugin-form-export" style="font-size:10px">Export Settings</button>
+            <label class="admin-btn-sm" style="font-size:10px;cursor:pointer">
+              Import Settings
+              <input type="file" id="plugin-form-import-file" accept=".json" style="display:none">
+            </label>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="admin-btn-sm" id="plugin-form-cancel">Cancel</button>
+            <button type="button" class="admin-btn-add" id="plugin-form-save" style="font-size:11px">Save</button>
+          </div>
         </div>
       </div>`;
 
     formEl.style.display = '';
     const msgEl = formEl.querySelector('#plugin-form-msg');
 
+    // ── Plugin enable toggle ───────────────────────────────────────────────
     formEl.querySelector('#plugin-form-enabled').addEventListener('change', async (e) => {
       const action = e.target.checked ? 'enable' : 'disable';
-      const track = formEl.querySelector('#plugin-form-enabled-track');
-      const thumb = formEl.querySelector('#plugin-form-enabled-thumb');
-      if (track) track.style.background = e.target.checked ? 'var(--accent,#bd93f9)' : 'color-mix(in srgb,var(--fg) 20%,transparent)';
-      if (thumb) thumb.style.left = e.target.checked ? '16px' : '2px';
+      _syncToggle('plugin-form-enabled', e.target.checked);
       try {
         await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/${action}`, {
           method: 'POST', credentials: 'same-origin'
@@ -3895,11 +3970,64 @@ async function initUnifiedIntegrations() {
         await renderList();
       } catch (_) {
         e.target.checked = !e.target.checked;
-        if (track) track.style.background = e.target.checked ? 'var(--accent,#bd93f9)' : 'color-mix(in srgb,var(--fg) 20%,transparent)';
-        if (thumb) thumb.style.left = e.target.checked ? '16px' : '2px';
+        _syncToggle('plugin-form-enabled', e.target.checked);
       }
     });
 
+    // ── Per-service enable toggles ─────────────────────────────────────────
+    (plugin.services || []).forEach((svc, idx) => {
+      const togId = `svc-tog-${idx}`;
+      const cb = formEl.querySelector(`#${togId}`);
+      if (!cb) return;
+      cb.addEventListener('change', async (e) => {
+        _syncToggle(togId, e.target.checked);
+        const action = e.target.checked ? 'enable' : 'disable';
+        try {
+          await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/services/${encodeURIComponent(svc.name)}/${action}`, {
+            method: 'POST', credentials: 'same-origin'
+          });
+        } catch (_) {
+          e.target.checked = !e.target.checked;
+          _syncToggle(togId, e.target.checked);
+        }
+      });
+    });
+
+    // ── Service field resets ──────────────────────────────────────────────
+    formEl.querySelectorAll('.svc-reset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const svcName = btn.dataset.svc;
+        const key = btn.dataset.key;
+        const def = btn.dataset.default || '';
+        const row = formEl.querySelector(`.plugin-svc-row[data-svc="${svcName}"]`);
+        if (!row) return;
+        const field = row.querySelector(`[data-key="${key}"]`);
+        if (field) field.value = def;
+      });
+    });
+
+    // ── Password field reveal ──────────────────────────────────────────────
+    formEl.querySelectorAll('.svc-reveal-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const svcName = btn.dataset.svc;
+        const row = formEl.querySelector(`.plugin-svc-row[data-svc="${svcName}"]`);
+        if (!row) return;
+        const field = row.querySelector('.svc-hdr-field');
+        if (field) field.type = field.type === 'password' ? 'text' : 'password';
+      });
+    });
+
+    // ── Plugin setting resets ──────────────────────────────────────────────
+    formEl.querySelectorAll('.plugin-setting-reset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.key;
+        const def = btn.dataset.default || '';
+        const field = formEl.querySelector(`.plugin-setting-field[data-key="${key}"]`);
+        if (field) field.value = def;
+      });
+    });
+
+    // ── Test buttons ──────────────────────────────────────────────────────
     formEl.querySelectorAll('.plugin-test-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
@@ -3916,35 +4044,122 @@ async function initUnifiedIntegrations() {
       });
     });
 
+    // ── Export settings ───────────────────────────────────────────────────
+    formEl.querySelector('#plugin-form-export').addEventListener('click', async () => {
+      try {
+        const r = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/export`, {
+          credentials: 'same-origin'
+        });
+        if (!r.ok) { msgEl.textContent = 'Export failed'; msgEl.style.color = 'var(--red)'; return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${pluginName}-settings.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        msgEl.textContent = 'Export error: ' + e.message;
+        msgEl.style.color = 'var(--red)';
+      }
+    });
+
+    // ── Import settings ───────────────────────────────────────────────────
+    formEl.querySelector('#plugin-form-import-file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const body = JSON.parse(text);
+        const r = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/import-settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        if (r.ok) {
+          msgEl.textContent = 'Settings imported';
+          msgEl.style.color = 'var(--color-success,#50fa7b)';
+          setTimeout(() => showPluginForm(pluginName, plugin), 800);
+        } else {
+          const err = await r.json().catch(() => ({}));
+          msgEl.textContent = err.detail || 'Import failed';
+          msgEl.style.color = 'var(--red)';
+        }
+      } catch (err) {
+        msgEl.textContent = 'Invalid JSON file';
+        msgEl.style.color = 'var(--red)';
+      }
+      e.target.value = '';
+    });
+
+    // ── Cancel ────────────────────────────────────────────────────────────
     formEl.querySelector('#plugin-form-cancel').addEventListener('click', () => {
       formEl.style.display = 'none';
     });
 
+    // ── Save (parallel requests) ───────────────────────────────────────────
     formEl.querySelector('#plugin-form-save').addEventListener('click', async () => {
-      const payload = {};
-      formEl.querySelectorAll('.plugin-setting-field').forEach(el => {
-        payload[el.dataset.key] = el.value;
+      const saves = [];
+
+      // Plugin-level settings
+      const pluginPayload = {};
+      formEl.querySelectorAll('.plugin-setting-field').forEach(f => {
+        pluginPayload[f.dataset.key] = f.value;
       });
-      try {
-        const r = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify(payload),
+      if (Object.keys(pluginPayload).length) {
+        saves.push(
+          fetch(`/api/plugins/${encodeURIComponent(pluginName)}/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(pluginPayload),
+          }).then(async r => {
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Plugin settings save failed');
+          })
+        );
+      }
+
+      // Per-service settings
+      formEl.querySelectorAll('.plugin-svc-row').forEach(row => {
+        const svcName = row.dataset.svc;
+        const svcPayload = {};
+        row.querySelectorAll('[data-key]').forEach(f => {
+          if (f.tagName === 'INPUT' && !f.disabled && f.type !== 'checkbox') {
+            svcPayload[f.dataset.key] = f.value;
+          }
         });
-        if (r.ok) {
-          msgEl.textContent = 'Saved';
-          msgEl.style.color = 'var(--color-success,#50fa7b)';
-          setTimeout(() => { msgEl.textContent = ''; }, 2000);
-          await renderList();
-        } else {
-          const err = await r.json().catch(() => ({}));
-          msgEl.textContent = err.detail || 'Save failed';
-          msgEl.style.color = 'var(--red)';
+        if (Object.keys(svcPayload).length) {
+          saves.push(
+            fetch(`/api/plugins/${encodeURIComponent(pluginName)}/services/${encodeURIComponent(svcName)}/settings`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify(svcPayload),
+            }).then(async r => {
+              if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Service ${svcName} save failed`);
+            })
+          );
         }
-      } catch (_) {
-        msgEl.textContent = 'Error saving';
+      });
+
+      if (!saves.length) {
+        msgEl.textContent = 'No changes to save';
+        msgEl.style.color = '';
+        setTimeout(() => { msgEl.textContent = ''; }, 1500);
+        return;
+      }
+
+      const results = await Promise.allSettled(saves);
+      const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.message || 'Save failed');
+      if (errors.length) {
+        msgEl.textContent = errors.join(' | ');
         msgEl.style.color = 'var(--red)';
+      } else {
+        msgEl.textContent = 'Saved';
+        msgEl.style.color = 'var(--color-success,#50fa7b)';
+        setTimeout(() => { msgEl.textContent = ''; }, 2000);
+        await renderList();
       }
     });
   }
