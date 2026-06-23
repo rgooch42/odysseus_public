@@ -153,3 +153,179 @@ def test_refresh_plugin_not_found(tmp_path):
     client, _ = _make_app_with_yaml(tmp_path, YAML_WITH_SETTINGS)
     resp = client.post("/api/plugins/nonexistent/refresh")
     assert resp.status_code == 404
+
+
+def _make_mcp_app(tmp_path: Path) -> tuple[TestClient, PluginManager]:
+    """Build test app with a plugin that has an MCP server."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    state_file = tmp_path / "plugins.json"
+
+    plugin_dir = plugins_dir / "mcp-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(textwrap.dedent("""\
+        name: mcp-plugin
+        version: 1.0.0
+        description: A test plugin with MCP server
+        mcp_servers:
+          - name: SB
+            url_env: SB_URL
+            headers_env: SB_HEADERS
+            description: Test MCP
+            settings:
+              - key: url
+                label: Server URL
+                type: url
+                placeholder: http://change-me/mcp
+              - key: headers
+                label: Auth Headers
+                type: text
+                secret: true
+        settings:
+          - key: sink
+            label: Sink
+            type: text
+    """))
+
+    registry = PluginRegistry()
+    mgr = PluginManager(plugins_dir=plugins_dir, state_file=state_file, registry=registry)
+    mgr.discover()
+
+    app = FastAPI()
+    app.include_router(setup_plugin_settings_routes(mgr))
+    return TestClient(app), mgr
+
+
+# ── Task 6: New routes ────────────────────────────────────────────────────────
+
+def test_enable_service(tmp_path):
+    client, _ = _make_mcp_app(tmp_path)
+    resp = client.post("/api/plugins/mcp-plugin/services/SB/enable")
+    assert resp.status_code == 200
+    assert resp.json() == {"name": "mcp-plugin", "service": "SB", "enabled": True}
+
+
+def test_disable_service(tmp_path):
+    client, _ = _make_mcp_app(tmp_path)
+    resp = client.post("/api/plugins/mcp-plugin/services/SB/disable")
+    assert resp.status_code == 200
+    assert resp.json() == {"name": "mcp-plugin", "service": "SB", "enabled": False}
+
+
+def test_enable_service_unknown_plugin_404(tmp_path):
+    client, _ = _make_mcp_app(tmp_path)
+    resp = client.post("/api/plugins/nope/services/SB/enable")
+    assert resp.status_code == 404
+
+
+def test_enable_service_unknown_service_404(tmp_path):
+    client, _ = _make_mcp_app(tmp_path)
+    resp = client.post("/api/plugins/mcp-plugin/services/NOPE/enable")
+    assert resp.status_code == 404
+
+
+def test_save_service_settings(tmp_path):
+    client, mgr = _make_mcp_app(tmp_path)
+    resp = client.post(
+        "/api/plugins/mcp-plugin/services/SB/settings",
+        json={"url": "http://docker.local/mcp"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["settings"]["url"] == "http://docker.local/mcp"
+    # Verify persisted
+    assert mgr.get_service_setting("mcp-plugin", "SB", "url") == "http://docker.local/mcp"
+
+
+def test_save_service_settings_unknown_key_400(tmp_path):
+    client, _ = _make_mcp_app(tmp_path)
+    resp = client.post(
+        "/api/plugins/mcp-plugin/services/SB/settings",
+        json={"unknown_key": "bad"},
+    )
+    assert resp.status_code == 400
+
+
+def test_export_settings(tmp_path):
+    client, mgr = _make_mcp_app(tmp_path)
+    mgr.save_service_settings("mcp-plugin", "SB", {"url": "http://local/mcp"})
+    resp = client.get("/api/plugins/mcp-plugin/export")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["services"]["SB"]["url"] == "http://local/mcp"
+
+
+def test_export_strips_env_governed_url(tmp_path, monkeypatch):
+    monkeypatch.setenv("SB_URL", "http://from-env/mcp")
+    client, mgr = _make_mcp_app(tmp_path)
+    mgr.save_service_settings("mcp-plugin", "SB", {"url": "http://local/mcp"})
+    resp = client.get("/api/plugins/mcp-plugin/export")
+    assert resp.status_code == 200
+    svc = resp.json().get("services", {}).get("SB", {})
+    assert "url" not in svc
+
+
+def test_import_settings_merges(tmp_path):
+    client, mgr = _make_mcp_app(tmp_path)
+    resp = client.post(
+        "/api/plugins/mcp-plugin/import-settings",
+        json={
+            "settings": {"sink": "local"},
+            "services": {"SB": {"url": "http://imported/mcp"}},
+        },
+    )
+    assert resp.status_code == 200
+    assert mgr.get_service_setting("mcp-plugin", "SB", "url") == "http://imported/mcp"
+    assert mgr.get_all_plugin_settings("mcp-plugin") == {"sink": "local"}
+
+
+def test_import_settings_rejects_unknown_service(tmp_path):
+    client, _ = _make_mcp_app(tmp_path)
+    resp = client.post(
+        "/api/plugins/mcp-plugin/import-settings",
+        json={"services": {"NOPE": {"url": "x"}}},
+    )
+    assert resp.status_code == 400
+
+
+def test_plugin_import_preview(tmp_path):
+    client, _ = _make_mcp_app(tmp_path)
+    yaml_content = textwrap.dedent("""\
+        name: new-plugin
+        version: 1.0.0
+        addon_type: mcp
+        description: Imported plugin
+        author: tester
+    """)
+    resp = client.post(
+        "/api/plugins/import",
+        content=yaml_content.encode(),
+        headers={"Content-Type": "application/octet-stream"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["manifest"]["name"] == "new-plugin"
+    assert data["already_installed"] is False
+    # Preview should NOT write to disk
+    assert not (tmp_path / "plugins" / "new-plugin").exists()
+
+
+def test_plugin_import_confirm_writes_to_disk(tmp_path):
+    client, mgr = _make_mcp_app(tmp_path)
+    yaml_content = textwrap.dedent("""\
+        name: new-plugin
+        version: 1.0.0
+        addon_type: mcp
+        description: Imported plugin
+        author: tester
+    """)
+    resp = client.post(
+        "/api/plugins/import?confirm=true",
+        content=yaml_content.encode(),
+        headers={"Content-Type": "application/octet-stream"},
+    )
+    assert resp.status_code == 200
+    plugin_dir = tmp_path / "plugins" / "new-plugin"
+    assert plugin_dir.exists()
+    assert (plugin_dir / "plugin.yaml").exists()
+    data = resp.json()
+    assert data["name"] == "new-plugin"
