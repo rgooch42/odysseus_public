@@ -3787,10 +3787,20 @@ async function initUnifiedIntegrations() {
 
     const depsHtml = (plugin.validation_issues && plugin.validation_issues.length)
       ? plugin.validation_issues.map(issue => {
+          const label = issue.env || issue.integration;
+          // If the env var is a URL var and a service with a local/env-stored URL
+          // has a name that appears in the env var name, treat it as satisfied.
+          const satisfiedLocally = issue.type === 'env_missing' && issue.env &&
+            (plugin.services || []).some(svc =>
+              (svc.url_source === 'local' || svc.url_source === 'env') &&
+              issue.env.toUpperCase().includes(svc.name.toUpperCase())
+            );
+          if (satisfiedLocally) {
+            return `<div style="display:flex;align-items:center;gap:5px;font-size:11px"><span style="color:var(--color-success,#50fa7b)">✓</span> ${_esc(label)} <span style="opacity:0.5">— set (local)</span></div>`;
+          }
           const icon = issue.severity === 'error' ? '✗' : '⚠';
           const color = issue.severity === 'error' ? 'var(--red)' : '#ffb86c';
-          const label = issue.env || issue.integration;
-          const hint = issue.type === 'env_missing' ? '— not set in .env' : '— not configured';
+          const hint = issue.type === 'env_missing' ? '— not set' : '— not configured';
           return `<div style="display:flex;align-items:center;gap:5px;font-size:11px"><span style="color:${color}">${icon}</span> ${_esc(label)} <span style="opacity:0.5">${hint}</span></div>`;
         }).join('')
       : '<div style="font-size:11px;color:var(--color-success,#50fa7b)">✓ All dependencies satisfied</div>';
@@ -3834,9 +3844,13 @@ async function initUnifiedIntegrations() {
             <strong>${_esc(plugin.name)}</strong> <span style="opacity:0.4;font-size:10px">v${_esc(plugin.version)} · ${_esc(plugin.author || '')}</span><br>
             <span style="opacity:0.5;font-size:10px">${_esc(plugin.description || '')}</span>
           </div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px">
             <span style="opacity:0.6">Enabled</span>
-            <input type="checkbox" id="plugin-form-enabled" ${plugin.enabled ? 'checked' : ''} style="width:16px;height:16px">
+            <span style="position:relative;display:inline-block;width:32px;height:18px">
+              <input type="checkbox" id="plugin-form-enabled" ${plugin.enabled ? 'checked' : ''} style="opacity:0;width:0;height:0;position:absolute">
+              <span id="plugin-form-enabled-track" style="position:absolute;inset:0;background:${plugin.enabled ? 'var(--accent,#bd93f9)' : 'color-mix(in srgb,var(--fg) 20%,transparent)'};border-radius:18px;transition:background 0.2s;cursor:pointer"></span>
+              <span id="plugin-form-enabled-thumb" style="position:absolute;top:2px;left:${plugin.enabled ? '16px' : '2px'};width:14px;height:14px;background:#fff;border-radius:50%;transition:left 0.2s;pointer-events:none"></span>
+            </span>
           </label>
         </div>
 
@@ -3870,6 +3884,10 @@ async function initUnifiedIntegrations() {
 
     formEl.querySelector('#plugin-form-enabled').addEventListener('change', async (e) => {
       const action = e.target.checked ? 'enable' : 'disable';
+      const track = formEl.querySelector('#plugin-form-enabled-track');
+      const thumb = formEl.querySelector('#plugin-form-enabled-thumb');
+      if (track) track.style.background = e.target.checked ? 'var(--accent,#bd93f9)' : 'color-mix(in srgb,var(--fg) 20%,transparent)';
+      if (thumb) thumb.style.left = e.target.checked ? '16px' : '2px';
       try {
         await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/${action}`, {
           method: 'POST', credentials: 'same-origin'
@@ -3877,6 +3895,8 @@ async function initUnifiedIntegrations() {
         await renderList();
       } catch (_) {
         e.target.checked = !e.target.checked;
+        if (track) track.style.background = e.target.checked ? 'var(--accent,#bd93f9)' : 'color-mix(in srgb,var(--fg) 20%,transparent)';
+        if (thumb) thumb.style.left = e.target.checked ? '16px' : '2px';
       }
     });
 
@@ -5887,6 +5907,11 @@ async function initUnifiedIntegrations() {
     });
   }
 
+  // Reset form panel to idle on each fresh mount
+  if (formEl) {
+    formEl.style.display = 'none';
+    formEl.innerHTML = '<div style="padding:24px;opacity:0.4;font-size:12px;text-align:center">Select an integration to configure</div>';
+  }
   await renderList();
 }
 
@@ -5920,6 +5945,13 @@ export function open(tab) {
   document.body.classList.toggle('settings-appearance-open', activeTab === 'appearance');
   syncAppearanceOpacity(activeTab === 'appearance');
   if (activeTab === 'ai') refreshAiModelEndpoints();
+  if (activeTab === 'integrations' && _unifiedInited) {
+    const _formEl = el('unified-intg-form');
+    if (_formEl) {
+      _formEl.style.display = 'none';
+      _formEl.innerHTML = '<div style="padding:24px;opacity:0.4;font-size:12px;text-align:center">Select an integration to configure</div>';
+    }
+  }
   if (ADMIN_TABS.has(activeTab) && window.adminModule && !window.adminModule._initialized) {
     window.adminModule._initData();
   }
