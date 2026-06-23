@@ -6127,6 +6127,193 @@ async function initUnifiedIntegrations() {
     formEl.style.display = 'none';
     formEl.innerHTML = '<div style="padding:24px;opacity:0.4;font-size:12px;text-align:center">Select an integration to configure</div>';
   }
+
+  // ── Import Plugin modal ────────────────────────────────────────────────────
+  function _openImportPluginModal() {
+    const _esc = s => { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; };
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'plugin-import-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.6)',
+      zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    });
+
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      background: 'var(--bg, #1e1e2e)',
+      border: '1px solid var(--border, #444)',
+      borderRadius: '10px',
+      padding: '20px',
+      width: '420px',
+      maxWidth: '95vw',
+      maxHeight: '80vh',
+      overflowY: 'auto',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    });
+
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <strong style="font-size:13px">Import Plugin</strong>
+        <button type="button" id="pi-close" style="background:none;border:none;color:var(--fg);opacity:0.5;cursor:pointer;font-size:16px;padding:2px 6px">✕</button>
+      </div>
+
+      <div id="pi-drop-zone" style="border:2px dashed var(--border,#444);border-radius:8px;padding:20px;text-align:center;cursor:pointer;font-size:12px;opacity:0.7;margin-bottom:12px;transition:border-color 0.15s">
+        <div>Drop a <code>plugin.yaml</code> or <code>.zip</code> here</div>
+        <div style="margin-top:6px;font-size:10px">or</div>
+        <label style="cursor:pointer;color:var(--accent,#bd93f9);font-size:11px;margin-top:6px;display:inline-block">
+          Browse file
+          <input type="file" id="pi-file-input" accept=".yaml,.yml,.zip" style="display:none">
+        </label>
+      </div>
+
+      <div id="pi-preview" style="display:none"></div>
+
+      <div id="pi-msg" style="font-size:11px;min-height:16px;margin-bottom:8px"></div>
+
+      <div style="display:flex;justify-content:flex-end;gap:6px">
+        <button type="button" class="admin-btn-sm" id="pi-cancel">Cancel</button>
+        <button type="button" class="admin-btn-add" id="pi-confirm" style="display:none;font-size:11px">Import</button>
+      </div>`;
+
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    const piMsg = panel.querySelector('#pi-msg');
+    const piPreview = panel.querySelector('#pi-preview');
+    const piConfirm = panel.querySelector('#pi-confirm');
+    const dropZone = panel.querySelector('#pi-drop-zone');
+    let _pendingFile = null;
+    let _parsedManifest = null;
+
+    function _close() { overlay.remove(); }
+
+    panel.querySelector('#pi-close').addEventListener('click', _close);
+    panel.querySelector('#pi-cancel').addEventListener('click', _close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) _close(); });
+
+    function _setMsg(text, color) {
+      piMsg.textContent = text;
+      piMsg.style.color = color || '';
+    }
+
+    async function _parseFile(file) {
+      _pendingFile = file;
+      _setMsg('Parsing…');
+      piPreview.style.display = 'none';
+      piConfirm.style.display = 'none';
+      _parsedManifest = null;
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const r = await fetch('/api/plugins/import', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: formData,
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          _setMsg(data.detail || 'Parse failed', 'var(--red)');
+          return;
+        }
+        _parsedManifest = data;
+        _showPreview(data);
+        _setMsg('');
+      } catch (e) {
+        _setMsg('Error: ' + e.message, 'var(--red)');
+      }
+    }
+
+    function _showPreview(data) {
+      const m = data.manifest || {};
+      const warningHtml = !m.author ? `<div style="font-size:10px;color:#ffb86c;margin-top:6px">⚠ No author in manifest — proceed with caution</div>` : '';
+      const updateHtml = data.already_installed && data.version_delta
+        ? `<div style="font-size:10px;color:#ffb86c;margin-top:6px">⚠ Already installed. Current: v${_esc(data.version_delta.current)} → Incoming: v${_esc(data.version_delta.incoming)}. Settings will be preserved.</div>`
+        : data.already_installed
+        ? `<div style="font-size:10px;color:#ffb86c;margin-top:6px">⚠ Already installed. Reinstalling will overwrite plugin files but preserve settings.</div>`
+        : '';
+      const minVerHtml = data.min_version_ok === false
+        ? `<div style="font-size:10px;color:var(--red);margin-top:6px">✗ Requires Odysseus v${_esc(m.min_odysseus_version || '?')} — upgrade required</div>`
+        : '';
+
+      piPreview.innerHTML = `
+        <div style="border:1px solid var(--border,#333);border-radius:6px;padding:10px;font-size:11px;margin-bottom:10px">
+          <div style="margin-bottom:4px">
+            <strong>${_esc(m.name || '?')}</strong>
+            <span style="opacity:0.4;margin-left:6px">v${_esc(m.version || '?')}</span>
+            ${m.addon_type ? `<span style="font-size:9px;text-transform:uppercase;letter-spacing:0.4px;padding:1px 5px;border:1px solid color-mix(in srgb,var(--accent,#bd93f9) 40%,transparent);border-radius:3px;color:var(--accent,#bd93f9);margin-left:6px">${_esc(m.addon_type)}</span>` : ''}
+          </div>
+          ${m.guid ? `<div style="font-size:10px;opacity:0.35">GUID: ${_esc(m.guid)}</div>` : '<div style="font-size:10px;color:#ffb86c">⚠ No GUID</div>'}
+          ${m.author ? `<div style="font-size:10px;opacity:0.5">Author: ${_esc(m.author)}</div>` : ''}
+          ${m.description ? `<div style="font-size:10px;opacity:0.6;margin-top:4px">${_esc(m.description)}</div>` : ''}
+          ${m.min_odysseus_version ? `<div style="font-size:10px;opacity:0.4">Requires Odysseus ≥ ${_esc(m.min_odysseus_version)}</div>` : ''}
+          ${updateHtml}${warningHtml}${minVerHtml}
+        </div>`;
+      piPreview.style.display = '';
+      if (data.min_version_ok !== false) {
+        piConfirm.style.display = '';
+      }
+    }
+
+    // File input
+    panel.querySelector('#pi-file-input').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file) _parseFile(file);
+      e.target.value = '';
+    });
+
+    // Drag and drop
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = 'var(--accent,#bd93f9)'; });
+    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.style.borderColor = '';
+      const file = e.dataTransfer?.files[0];
+      if (file) _parseFile(file);
+    });
+
+    // Confirm (step 2)
+    piConfirm.addEventListener('click', async () => {
+      if (!_pendingFile) return;
+      piConfirm.disabled = true;
+      piConfirm.textContent = '…';
+      _setMsg('Installing…');
+      const formData = new FormData();
+      formData.append('file', _pendingFile);
+      try {
+        const r = await fetch('/api/plugins/import?confirm=true', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: formData,
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          _setMsg(data.detail || 'Install failed', 'var(--red)');
+          piConfirm.disabled = false;
+          piConfirm.textContent = 'Import';
+          return;
+        }
+        _close();
+        await renderList();
+        // Open the plugin panel for the newly installed plugin
+        if (data.name) showPluginForm(data.name, data);
+      } catch (e) {
+        _setMsg('Error: ' + e.message, 'var(--red)');
+        piConfirm.disabled = false;
+        piConfirm.textContent = 'Import';
+      }
+    });
+  }
+
+  // Wire the Import Plugin button
+  const importPluginBtn = el('unified-intg-import-plugin-btn');
+  if (importPluginBtn) {
+    importPluginBtn.addEventListener('click', _openImportPluginModal);
+  }
+
   await renderList();
 }
 
