@@ -122,9 +122,10 @@ def setup_plugin_settings_routes(manager: PluginManager) -> APIRouter:
                     svc_data.pop("headers", None)
                 svcs = {**svcs, srv.name: svc_data}
         sanitized["services"] = svcs
+        safe_name = name.replace('"', "").replace(";", "").replace("/", "")
         return JSONResponse(
             content=sanitized,
-            headers={"Content-Disposition": f'attachment; filename="{name}-settings.json"'},
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}-settings.json"'},
         )
 
     @router.post("/{name}/import-settings")
@@ -180,7 +181,7 @@ def setup_plugin_settings_routes(manager: PluginManager) -> APIRouter:
 
     @router.post("/import")
     async def import_plugin(request: Request, confirm: bool = False):
-        import shutil, zipfile, io
+        import zipfile, io
         from src.plugin_manifest import PluginManifest, ManifestError
 
         content_type = request.headers.get("content-type", "")
@@ -208,8 +209,13 @@ def setup_plugin_settings_routes(manager: PluginManager) -> APIRouter:
                 yaml_content = zf.read(yaml_names[0]).decode("utf-8")
             except zipfile.BadZipFile:
                 raise HTTPException(status_code=400, detail="Invalid zip file")
+            except UnicodeDecodeError:
+                raise HTTPException(status_code=400, detail="plugin.yaml is not valid UTF-8")
         else:
-            yaml_content = raw.decode("utf-8")
+            try:
+                yaml_content = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                raise HTTPException(status_code=400, detail="Upload is not valid UTF-8")
 
         try:
             manifest = PluginManifest.from_yaml_str(yaml_content, source="<upload>")
@@ -240,12 +246,16 @@ def setup_plugin_settings_routes(manager: PluginManager) -> APIRouter:
             plugin_dir = manager._plugins_dir / manifest.name
             plugin_dir.mkdir(parents=True, exist_ok=True)
             zf = zipfile.ZipFile(io.BytesIO(raw))
+            resolved_root = plugin_dir.resolve()
             for member in zf.namelist():
                 parts = member.split("/", 1)
                 dest_rel = parts[1] if len(parts) > 1 else parts[0]
                 if not dest_rel:
                     continue
                 dest = plugin_dir / dest_rel
+                if not dest.resolve().is_relative_to(resolved_root):
+                    logger.warning("Blocked zip-slip path in import: %s", member)
+                    continue
                 if member.endswith("/"):
                     dest.mkdir(parents=True, exist_ok=True)
                 else:
