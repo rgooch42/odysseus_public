@@ -3915,17 +3915,20 @@ async function initUnifiedIntegrations() {
       const sourceRow = (urlSchema || hdrsSchema) ? `
         <div style="font-size:9px;opacity:0.35;margin-top:2px">Source: ${_esc(sourceLabel)}</div>` : '';
 
+      const hasConfig = !!(urlSchema || hdrsSchema);
+      const chevronSvg = hasConfig ? `<svg class="svc-chevron" data-svc="${_esc(svc.name)}" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.35;transition:transform 0.15s;flex-shrink:0"><polyline points="6 9 12 15 18 9"/></svg>` : '';
       return `<div class="plugin-svc-row" data-svc="${_esc(svc.name)}" style="padding:6px 8px;border:1px solid var(--border,#333);border-radius:6px;margin-bottom:5px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:${(urlSchema || hdrsSchema) ? '6px' : '0'}">
+        <div class="svc-header-row" data-svc="${_esc(svc.name)}" style="display:flex;align-items:center;gap:8px;${hasConfig ? 'cursor:pointer;' : ''}">
           <span style="width:6px;height:6px;border-radius:50%;background:${dot};flex-shrink:0"></span>
           <span style="flex:1;font-size:11px"><strong>${_esc(svc.name)}</strong>${svc.description ? ' <span style="opacity:0.5">— ' + _esc(svc.description) + '</span>' : ''}</span>
           <span style="font-size:10px;opacity:0.4">${toolLabel}</span>
           <button class="admin-btn-sm plugin-test-btn" data-plugin="${_esc(pluginName)}" data-svc="${_esc(svc.name)}" style="font-size:9px;padding:2px 7px;" ${svc.status === 'unconfigured' ? 'disabled' : ''}>Test</button>
-          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px">
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px" onclick="event.stopPropagation()">
             ${_toggleHtml(svcToggleId, svcEnabled)}
           </label>
+          ${chevronSvg}
         </div>
-        ${urlField}${hdrsField}${sourceRow}
+        ${hasConfig ? `<div class="svc-config-body" data-svc="${_esc(svc.name)}" style="display:none;margin-top:6px">${urlField}${hdrsField}${sourceRow}</div>` : ''}
       </div>`;
     }).join('');
 
@@ -4074,6 +4077,23 @@ async function initUnifiedIntegrations() {
         const def = btn.dataset.default || '';
         const field = formEl.querySelector(`.plugin-setting-field[data-key="${key}"]`);
         if (field) field.value = def;
+      });
+    });
+
+    // ── Service row expand/collapse (click anywhere on header) ───────────
+    formEl.querySelectorAll('.svc-header-row').forEach(header => {
+      const svcName = header.dataset.svc;
+      const body = formEl.querySelector(`.svc-config-body[data-svc="${svcName}"]`);
+      const chevron = formEl.querySelector(`.svc-chevron[data-svc="${svcName}"]`);
+      if (!body) return;
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.admin-btn-sm, input, label, select')) return;
+        const isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : '';
+        if (chevron) {
+          chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+          chevron.style.opacity = isOpen ? '0.35' : '0.7';
+        }
       });
     });
 

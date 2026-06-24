@@ -7,7 +7,7 @@
 //   - Other static assets (images/fonts/libs): cache-first with bg refresh.
 //   - API / non-GET: never cached.
 // Bump CACHE_NAME whenever the precache list or SW logic changes.
-const CACHE_NAME = 'odysseus-v327';
+const CACHE_NAME = 'odysseus-v328';
 
 // Core shell precached on install so repeat opens are instant without any
 // network wait. Keep this list in sync with the <script type="module"> tags
@@ -114,9 +114,11 @@ self.addEventListener('fetch', (e) => {
 
   // JS/CSS: network-first — always try the network so code/style edits show up
   // on a normal reload; fall back to cache only when offline.
+  // Use cache:'reload' to bypass the browser HTTP cache so the SW always gets
+  // the freshest file from the server (avoids stale entries surviving after edits).
   if (url.pathname.startsWith('/static/') && /\.(js|css)(\?|$)/.test(url.pathname + url.search)) {
     e.respondWith(
-      fetch(e.request).then(res => {
+      fetch(new Request(e.request, { cache: 'reload' })).then(res => {
         if (res && res.ok) {
           const copy = res.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(e.request, copy));
