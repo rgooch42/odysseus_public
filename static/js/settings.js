@@ -3494,7 +3494,7 @@ const INTG_TYPES = {
   codex:   { label: 'Codex',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 10.696.453a6.023 6.023 0 0 0-5.75 4.172 6.061 6.061 0 0 0-3.946 2.945 6.024 6.024 0 0 0 .742 7.099 5.98 5.98 0 0 0 .516 4.911 6.046 6.046 0 0 0 6.51 2.9A5.996 5.996 0 0 0 13.26 23.547a6.023 6.023 0 0 0 5.75-4.172 6.061 6.061 0 0 0 3.946-2.945 6.024 6.024 0 0 0-.674-6.609zM13.26 21.047a4.508 4.508 0 0 1-2.886-1.041l.143-.082 4.793-2.769a.777.777 0 0 0 .391-.676V10.34l2.026 1.17a.072.072 0 0 1 .039.061v5.596a4.532 4.532 0 0 1-4.506 4.48zM3.968 17.64a4.473 4.473 0 0 1-.537-3.018l.143.086 4.793 2.769a.79.79 0 0 0 .782 0l5.852-3.379v2.34a.072.072 0 0 1-.029.062l-4.845 2.796a4.532 4.532 0 0 1-6.159-1.656zM2.804 7.922a4.49 4.49 0 0 1 2.348-1.973V11.6a.778.778 0 0 0 .391.676l5.852 3.378-2.026 1.17a.072.072 0 0 1-.068 0L4.456 14.03a4.532 4.532 0 0 1-1.652-6.108zm16.423 3.823L13.375 8.367l2.026-1.17a.072.072 0 0 1 .068 0l4.845 2.796a4.525 4.525 0 0 1-.7 8.08V12.42a.778.778 0 0 0-.387-.676zm2.015-3.025l-.143-.086-4.793-2.769a.79.79 0 0 0-.782 0L9.672 9.243V6.903a.072.072 0 0 1 .029-.062l4.845-2.796a4.525 4.525 0 0 1 6.696 4.675zM8.598 12.66L6.57 11.49a.072.072 0 0 1-.039-.061V5.833a4.525 4.525 0 0 1 7.413-3.48l-.143.082-4.793 2.769a.777.777 0 0 0-.391.676l-.019 6.78zm1.1-2.379l2.607-1.505 2.607 1.505v3.01l-2.607 1.505-2.607-1.505z"/></svg>' },
   claude:  { label: 'Claude',  icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg>' },
   vault:   { label: 'Vault',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' },
-  plugin:  { label: 'MCP',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
+  plugin:  { label: 'Plugin',  icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5l6.74-6.76z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>' },
 };
 
 // Config shared by the Codex Agent and Claude Agent forms. Both use the same
@@ -3657,56 +3657,87 @@ async function initUnifiedIntegrations() {
       items.push({ type: agentType, id: tok.id, name: tok.name || (agentType === 'claude' ? 'Claude Agent' : 'Codex Agent'), detail, enabled: true, data: tok });
     }
     // Vaultwarden removed as an integration option.
-    // Plugin-contributed services
+    // One card per plugin — consistent with Added Models (one card per endpoint)
     const pluginList = Array.isArray(pluginsRes) ? pluginsRes : [];
     for (const plugin of pluginList) {
-      if (plugin.enabled && plugin.services && plugin.services.length > 0) {
-        for (const svc of plugin.services) {
-          const statusText = svc.status === 'connected'
-            ? `${svc.enabled_tool_count}/${svc.tool_count} tools`
-            : svc.status === 'unconfigured' ? 'env var not set'
-            : svc.status;
-          items.push({
-            type: 'plugin',
-            id: `plugin_${plugin.name}_${svc.name}`,
-            name: svc.name,
-            detail: statusText,
-            enabled: svc.status === 'connected',
-            data: { plugin, svc },
-          });
-        }
-      } else if (!plugin.enabled) {
-        items.push({
-          type: 'plugin',
-          id: `plugin_${plugin.name}`,
-          name: plugin.name,
-          detail: `${plugin.description || ''} — disabled`.trim(),
-          enabled: false,
-          data: { plugin, svc: null },
-        });
+      const svcs = plugin.services || [];
+      const connectedCount = svcs.filter(s => s.status === 'connected').length;
+      const enabledCount = svcs.filter(s => s.enabled !== false).length;
+      const totalCount = svcs.length;
+      let detail;
+      if (!plugin.enabled) {
+        detail = plugin.description || 'disabled';
+      } else if (totalCount === 0) {
+        detail = plugin.description || 'no MCP services';
+      } else {
+        detail = `${connectedCount}/${totalCount} services connected`;
       }
+      items.push({
+        type: 'plugin',
+        id: `plugin_${plugin.name}`,
+        name: plugin.name,
+        detail,
+        enabled: plugin.enabled && connectedCount > 0,
+        pluginEnabled: plugin.enabled,
+        data: { plugin, svc: null },
+      });
     }
     return items;
   }
 
+  function renderPluginCard(item) {
+    const _e = s => { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; };
+    const plugin = item.data.plugin;
+    const version = plugin.version ? `v${_e(plugin.version)}` : '';
+    const svcs = plugin.services || [];
+    const connectedCount = svcs.filter(s => s.status === 'connected').length;
+    const totalCount = svcs.length;
+    const statusDot = item.enabled
+      ? '<span style="width:8px;height:8px;border-radius:50%;background:var(--color-success,#50fa7b);flex-shrink:0;animation:cookbook-notif-pulse 2s ease-in-out infinite;" title="Active"></span>'
+      : (item.pluginEnabled
+        ? '<span style="width:8px;height:8px;border-radius:50%;background:#ffb86c;flex-shrink:0;" title="Enabled — no services connected"></span>'
+        : '<span style="width:8px;height:8px;border-radius:50%;background:var(--fg);opacity:0.2;flex-shrink:0;" title="Disabled"></span>');
+    const svcLabel = totalCount > 0
+      ? `<span style="font-size:9px;opacity:0.5;margin-left:4px">${connectedCount}/${totalCount} svcs</span>`
+      : '';
+    const toggleChecked = item.pluginEnabled ? 'checked' : '';
+    const safeName = _e(plugin.name);
+    const safeDetail = _e(item.detail || '');
+    return `<div class="intg-card plugin-intg-card" data-intg-id="${safeName}" data-intg-type="plugin" data-plugin-name="${safeName}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:color-mix(in srgb, var(--fg) 3%, transparent);margin-bottom:6px;cursor:pointer;transition:all 0.15s;" title="Click to configure">
+      <span style="color:#bd93f9;flex-shrink:0">${INTG_TYPES.plugin.icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:5px">
+          ${safeName}
+          ${version ? `<span style="font-size:9px;font-weight:normal;opacity:0.45">${version}</span>` : ''}
+          <span style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;padding:1px 5px;border:1px solid color-mix(in srgb,#bd93f9 50%,transparent);border-radius:3px;color:#bd93f9;background:color-mix(in srgb,#bd93f9 12%,transparent);">Plugin</span>
+          ${svcLabel}
+        </div>
+        <div style="font-size:11px;opacity:0.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeDetail}</div>
+      </div>
+      ${statusDot}
+      <label class="admin-switch plugin-toggle-label" data-plugin-name="${safeName}" title="${item.pluginEnabled ? 'Disable' : 'Enable'} plugin" style="flex-shrink:0" onclick="event.stopPropagation()">
+        <input type="checkbox" class="plugin-enable-chk" data-plugin-name="${safeName}" ${toggleChecked}>
+        <span class="admin-slider"></span>
+      </label>
+    </div>`;
+  }
+
   function renderCard(item) {
+    if (item.type === 'plugin') return renderPluginCard(item);
     const t = INTG_TYPES[item.type] || INTG_TYPES.api;
-    // Static enabled/disabled indicator — same dot every integration
-    // type gets. (The clickable glow-on-test variant for email was
-    // removed earlier; this matches the API/CalDAV/MCP pattern.)
     const statusDot = item.enabled
       ? '<span style="width:8px;height:8px;border-radius:50%;background:var(--color-success,#50fa7b);flex-shrink:0;--notif-glow:var(--color-success,#50fa7b);animation:cookbook-notif-pulse 2s ease-in-out infinite;" title="Active"></span>'
       : '<span style="width:8px;height:8px;border-radius:50%;background:var(--fg);opacity:0.3;flex-shrink:0" title="Disabled"></span>';
     return `<div class="intg-card" data-intg-id="${item.id}" data-intg-type="${item.type}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:color-mix(in srgb, var(--fg) 3%, transparent);margin-bottom:6px;cursor:pointer;transition:all 0.15s;" title="Click to edit">
       <span style="color:var(--accent, var(--red));flex-shrink:0">${t.icon}</span>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px">${item.name} <span style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;padding:1px 5px;border:1px solid color-mix(in srgb, var(--accent, var(--red)) 50%, transparent);border-radius:3px;color:var(--accent, var(--red));background:color-mix(in srgb, var(--accent, var(--red)) 12%, transparent);">${t.label}</span>${item.type === 'plugin' ? '<span style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;padding:1px 5px;border:1px solid color-mix(in srgb,#bd93f9 50%,transparent);border-radius:3px;color:#bd93f9;background:color-mix(in srgb,#bd93f9 12%,transparent);">Plugin</span>' : ''}</div>
+        <div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px">${item.name} <span style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;padding:1px 5px;border:1px solid color-mix(in srgb, var(--accent, var(--red)) 50%, transparent);border-radius:3px;color:var(--accent, var(--red));background:color-mix(in srgb, var(--accent, var(--red)) 12%, transparent);">${t.label}</span></div>
         <div style="font-size:11px;opacity:0.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.detail || ''}</div>
       </div>
       ${statusDot}
-      ${item.type !== 'plugin' ? `<button class="admin-btn-sm intg-del-btn" data-intg-id="${item.id}" data-intg-type="${item.type}" data-intg-name="${(item.name || '').replace(/"/g, '&quot;')}" title="Remove" style="background:none;border:none;padding:4px;cursor:pointer;color:var(--red);opacity:0.55;display:inline-flex;align-items:center;justify-content:center;">
+      <button class="admin-btn-sm intg-del-btn" data-intg-id="${item.id}" data-intg-type="${item.type}" data-intg-name="${(item.name || '').replace(/"/g, '&quot;')}" title="Remove" style="background:none;border:none;padding:4px;cursor:pointer;color:var(--red);opacity:0.55;display:inline-flex;align-items:center;justify-content:center;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-      </button>` : ''}
+      </button>
     </div>`;
   }
 
@@ -3717,19 +3748,36 @@ async function initUnifiedIntegrations() {
         <span style="flex:1;line-height:1.35">${integrationNotice}</span>
         <button type="button" class="admin-btn-sm intg-open-email-settings" style="white-space:nowrap;">Email settings</button>
       </div>` : '';
-    if (items.length === 0) {
-      listEl.innerHTML = noticeHtml + '<div style="padding:12px;opacity:0.5;font-size:12px;text-align:center">No integrations configured</div>';
-    } else {
-      listEl.innerHTML = noticeHtml + items.map(renderCard).join('');
-    }
+    const pluginItems = items.filter(i => i.type === 'plugin');
+    const otherItems = items.filter(i => i.type !== 'plugin');
+    const _sectionHead = (label) => `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;opacity:0.45;margin:10px 0 4px 2px;display:flex;align-items:center;gap:6px"><span>${label}</span><span style="flex:1;height:1px;background:var(--border);opacity:0.5;margin-left:4px"></span></div>`;
+    let html = noticeHtml;
+    if (pluginItems.length > 0) html += _sectionHead('Installed Plugins') + pluginItems.map(renderCard).join('');
+    if (otherItems.length > 0) html += (pluginItems.length > 0 ? _sectionHead('Other Integrations') : '') + otherItems.map(renderCard).join('');
+    if (items.length === 0) html += '<div style="padding:12px;opacity:0.5;font-size:12px;text-align:center">No integrations configured</div>';
+    listEl.innerHTML = html;
     listEl.querySelector('.intg-open-email-settings')?.addEventListener('click', (e) => {
       e.stopPropagation();
       _openEmailSettings();
     });
+    // Wire plugin enable/disable toggles (on card, without opening form)
+    listEl.querySelectorAll('.plugin-enable-chk').forEach(chk => {
+      chk.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const pluginName = chk.dataset.pluginName;
+        const enabling = chk.checked;
+        const url = `/api/plugins/${encodeURIComponent(pluginName)}/${enabling ? 'enable' : 'disable'}`;
+        try {
+          await fetch(url, { method: 'POST', credentials: 'same-origin' });
+        } catch (_) {}
+        await renderList();
+        notifyIntegrationsChanged();
+      });
+    });
     // Wire edit clicks
     listEl.querySelectorAll('.intg-card').forEach(card => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('.intg-del-btn')) return;
+        if (e.target.closest('.intg-del-btn') || e.target.closest('.plugin-toggle-label')) return;
         const type = card.dataset.intgType;
         const id = card.dataset.intgId;
         // Toggle a class instead of mutating inline borderColor — the
@@ -3738,7 +3786,7 @@ async function initUnifiedIntegrations() {
         listEl.querySelectorAll('.intg-card.intg-card-active').forEach(c => c.classList.remove('intg-card-active'));
         card.classList.add('intg-card-active');
         if (type === 'plugin') {
-          const item = items.find(x => x.id === id);
+          const item = items.find(x => x.id === `plugin_${card.dataset.pluginName}`);
           if (item) showPluginForm(item.data.plugin.name, item.data.plugin);
           return;
         }
