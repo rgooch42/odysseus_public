@@ -1,0 +1,41 @@
+name: fetch-mcp
+guid: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+version: 1.0.0
+addon_type: mcp
+min_odysseus_version: "1.2.0"
+description: >
+  Connects the official MCP Fetch server to Odysseus, giving the AI agent
+  the ability to retrieve web pages, convert them to Markdown, and read
+  raw HTML. Self-hosted via npx — no API key required.
+author: community
+
+mcp_servers:
+  - name: Fetch
+    url_env: ODYSSEUS_MCP_FETCH_URL
+    headers_env: ODYSSEUS_MCP_FETCH_HEADERS
+    description: Web page fetcher — returns Markdown-converted page content
+    settings:
+      - key: url
+        label: Server URL
+        type: url
+        placeholder: "http://localhost:8181/mcp"
+        secret: false
+      - key: headers
+        label: Auth Headers (JSON)
+        type: text
+        placeholder: '{"Authorization": "Bearer <token>"}'
+        secret: true
+
+requires:
+  - env: ODYSSEUS_MCP_FETCH_URL
+
+settings:
+  - key: max_length
+    label: Max response length (chars)
+    type: text
+    placeholder: "5000"
+    default: "5000"
+  - key: user_agent
+    label: User-Agent override
+    type: text
+    placeholder: "Mozilla/5.0 (compatible; Odysseus/1.2.0)"
