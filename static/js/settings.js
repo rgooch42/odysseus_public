@@ -3774,16 +3774,18 @@ async function initUnifiedIntegrations() {
         notifyIntegrationsChanged();
       });
     });
-    // Wire edit clicks
+    // Wire edit clicks — clicking an active card collapses the form (toggle).
     listEl.querySelectorAll('.intg-card').forEach(card => {
       card.addEventListener('click', (e) => {
         if (e.target.closest('.intg-del-btn') || e.target.closest('.plugin-toggle-label')) return;
         const type = card.dataset.intgType;
         const id = card.dataset.intgId;
-        // Toggle a class instead of mutating inline borderColor — the
-        // inline border shorthand made the reset unreliable, leaving
-        // stale accent borders on previously-clicked cards.
+        const wasActive = card.classList.contains('intg-card-active');
         listEl.querySelectorAll('.intg-card.intg-card-active').forEach(c => c.classList.remove('intg-card-active'));
+        if (wasActive) {
+          formEl.style.display = 'none';
+          return;
+        }
         card.classList.add('intg-card-active');
         if (type === 'plugin') {
           const item = items.find(x => x.id === `plugin_${card.dataset.pluginName}`);
